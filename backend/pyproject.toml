@@ -30,6 +30,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+# Один event loop на весь прогон: пул asyncpg привязан к loop, и функция-loop
+# на каждый тест ломала соединения PostgreSQL («attached to a different loop»).
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
 filterwarnings = ["error::DeprecationWarning:leonit.*"]

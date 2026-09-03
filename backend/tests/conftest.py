@@ -16,13 +16,17 @@ import pytest
 _TMP_DIR = Path(os.environ.get("PYTEST_TMP_ROOT", ".pytest_tmp")) / str(os.getpid())
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("ENVIRONMENT", "test")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP_DIR / 'test.db').as_posix()}"
+# TEST_DATABASE_URL — прогон на живом PostgreSQL (CI); иначе своя SQLite-база.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or (
+    f"sqlite+aiosqlite:///{(_TMP_DIR / 'test.db').as_posix()}"
+)
 os.environ["MEDIA_ROOT"] = (_TMP_DIR / "media").as_posix()
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-1234")
 # Тесты никогда не ходят в реальные модели, даже если в .env разработчика есть ключи.
 os.environ["MODEL_PROVIDER"] = "fake"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
 from leonit.ai.gateway import reset_gateway  # noqa: E402
 from leonit.core.db import Base, dispose_engine, get_engine  # noqa: E402
@@ -39,6 +43,12 @@ async def _database_schema() -> AsyncIterator[None]:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     yield
+    if engine.dialect.name != "sqlite":
+        # Общая PostgreSQL-база в CI: убираем за собой, чтобы повторный прогон
+        # начинался с чистой схемы.
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all)
+            await connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
     await dispose_engine()
 
 
