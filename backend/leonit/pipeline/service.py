@@ -4,28 +4,38 @@
 перезаписывает аудио и ремукс и снова вызывает STT. Промежуточный результат
 (метаданные, аудио, ремукс) коммитится до транскрибации — если упал провайдер
 STT, у сотрудника уже есть аудио и метаданные, а повтор не начинает с нуля.
+
+Ответ переводится в ``processing`` условным UPDATE (compare-and-set): два
+воркера не могут взять один ответ одновременно, даже если очередь отдала
+задачу «зомби»-перехватом. Обработка, прерванная остановкой воркера, возвращает
+ответ в ``uploaded``; ответ, брошенный убитым воркером, считается протухшим по
+``updated_at`` и берётся заново (сразу — если пришла задача, иначе — тиком
+воркера, см. ``jobs.py``).
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from leonit.accounts.models import Organization
 from leonit.ai.gateway import get_stt
 from leonit.ai.providers.base import STTProvider
-from leonit.candidates.models import Interview
+from leonit.ai.providers.openai_compatible import MAX_AUDIO_BYTES
+from leonit.candidates.models import Interview, InterviewStatus
 from leonit.core.config import get_settings
 from leonit.core.logging import get_logger
 from leonit.core.storage import LocalStorage, Storage, get_storage
 from leonit.core.time import utcnow
 from leonit.interviews.models import Answer, AnswerStatus
+from leonit.interviews.service import ANSWER_PROCESS_JOB
 from leonit.jobs import service as jobs
 from leonit.jobs.models import Job
 from leonit.pipeline import ffmpeg
@@ -38,6 +48,10 @@ RETENTION_PURGE_JOB = "retention.purge"
 PROCESSABLE_STATUSES: frozenset[AnswerStatus] = frozenset(
     {AnswerStatus.uploaded, AnswerStatus.failed}
 )
+# Лимит STT-провайдера на размер файла: скопированный Opus длинного ответа
+# может его превысить — тогда дорожка перекодируется в компактный моно 16 кГц.
+STT_MAX_AUDIO_BYTES = MAX_AUDIO_BYTES
+INTERRUPTED_MESSAGE = "обработка прервана остановкой воркера и будет повторена"
 _ERROR_MAX_CHARS = 2000
 _PROMPT_MAX_TERMS = 40
 _PROMPT_MAX_CHARS = 600
@@ -47,6 +61,16 @@ _LANGUAGE_MAX_CHARS = 16
 _REBUILT_META_KEYS: frozenset[str] = frozenset(
     {"playback_key", "playback_error", "audio_copied", "stt_model"}
 )
+# Интервью, которые кандидат не довёл до конца: медиа чистится по сроку
+# хранения от истечения ссылки, иначе брошенная запись хранилась бы вечно.
+_ABANDONED_STATUSES: tuple[InterviewStatus, ...] = (
+    InterviewStatus.in_progress,
+    InterviewStatus.expired,
+)
+
+
+class AnswerBusyError(PipelineError):
+    """Ответ прямо сейчас обрабатывает другой воркер: задачу стоит повторить позже."""
 
 
 # ------------------------------------------------------------------ helpers
@@ -61,6 +85,11 @@ def audio_key_for(media_key: str) -> str:
 def playback_key_for(media_key: str) -> str:
     path = PurePosixPath(media_key)
     return str(path.with_name(f"{path.stem}.playback.webm"))
+
+
+def interview_prefix(interview_id: UUID) -> str:
+    """Каталог всех файлов интервью в хранилище (см. ``InterviewRoomService``)."""
+    return f"interviews/{interview_id}"
 
 
 def stt_prompt(title: str, skills: Sequence[str]) -> str:
@@ -86,6 +115,10 @@ def stt_prompt(title: str, skills: Sequence[str]) -> str:
     return " ".join(parts)[:_PROMPT_MAX_CHARS]
 
 
+def stale_processing_threshold() -> timedelta:
+    return timedelta(seconds=get_settings().PIPELINE_STALE_PROCESSING_S)
+
+
 def _local(storage: Storage) -> LocalStorage:
     # ffmpeg работает с путями, а не с потоками: абстракция Storage нужна для
     # чтения/проверки/удаления, но для обработки нужен локальный том.
@@ -96,6 +129,10 @@ def _local(storage: Storage) -> LocalStorage:
 
 async def _read_all(storage: Storage, key: str) -> bytes:
     return b"".join([chunk async for chunk in storage.open_range(key)])
+
+
+def _file_size(path: Path) -> int:
+    return path.stat().st_size
 
 
 def _segments(transcript_segments: Sequence[Any]) -> list[dict[str, Any]]:
@@ -113,6 +150,33 @@ def _segments(transcript_segments: Sequence[Any]) -> list[dict[str, Any]]:
 # ------------------------------------------------------------- processing
 
 
+async def claim_answer(session: AsyncSession, answer_id: UUID, *, now: datetime) -> bool:
+    """Занять ответ под обработку одним условным UPDATE.
+
+    Берутся ``uploaded``/``failed`` и протухшие ``processing`` (без движения
+    дольше ``PIPELINE_STALE_PROCESSING_S``). ``rowcount == 0`` значит, что ответ
+    либо уже обработан, либо его держит живой воркер.
+    """
+    stale_before = now - stale_processing_threshold()
+    result = await session.execute(
+        update(Answer)
+        .where(
+            Answer.id == answer_id,
+            or_(
+                Answer.status.in_(list(PROCESSABLE_STATUSES)),
+                and_(
+                    Answer.status == AnswerStatus.processing,
+                    Answer.updated_at < stale_before,
+                ),
+            ),
+        )
+        .values(status=AnswerStatus.processing, processing_error=None, updated_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    return bool(result.rowcount)
+
+
 async def process_answer(
     session: AsyncSession,
     answer_id: UUID,
@@ -122,25 +186,30 @@ async def process_answer(
 ) -> dict[str, Any]:
     """Полный цикл по одному ответу: probe → аудио → ремукс → транскрипт.
 
-    Ответ не в ``uploaded``/``failed`` пропускается: ``processing`` значит, что
-    его уже держит другой воркер, ``done`` — что работа сделана. Ошибка любого
-    шага переводит ответ в ``failed`` с текстом ошибки и пробрасывается дальше —
-    очередь повторит задачу с паузой, и повтор корректно стартует из ``failed``.
+    Ответ ``done``/``recording``/``abandoned`` пропускается. ``processing``
+    у живого воркера — ``AnswerBusyError``: очередь повторит задачу с паузой, а
+    если ответ так и останется брошенным, его вернёт в очередь тик воркера.
+    Ошибка любого шага переводит ответ в ``failed`` с текстом ошибки и
+    пробрасывается дальше — очередь повторит задачу, и повтор корректно
+    стартует из ``failed``. Отмена (остановка воркера) возвращает ``uploaded``.
     """
     storage = storage or get_storage()
     answer = await session.get(Answer, answer_id)
     if answer is None:
         return {"skipped": "answer not found", "answer_id": str(answer_id)}
-    if answer.status not in PROCESSABLE_STATUSES:
+    if answer.status not in PROCESSABLE_STATUSES and answer.status != AnswerStatus.processing:
         return {"skipped": f"status is {answer.status.value}", "answer_id": str(answer_id)}
     if (answer.media_meta or {}).get("purged_at") or not answer.media_key:
         return {"skipped": "media is purged", "answer_id": str(answer_id)}
+    if not await claim_answer(session, answer_id, now=utcnow()):
+        await session.refresh(answer)
+        if answer.status == AnswerStatus.processing:
+            raise AnswerBusyError("ответ уже обрабатывается другим воркером")
+        return {"skipped": f"status is {answer.status.value}", "answer_id": str(answer_id)}
+    await session.refresh(answer)
 
     interview = await session.get(Interview, answer.interview_id)
     vacancy = await session.get(Vacancy, interview.vacancy_id) if interview else None
-    answer.status = AnswerStatus.processing
-    answer.processing_error = None
-    await session.commit()
     try:
         return await _run_pipeline(session, answer, vacancy, storage, stt or get_stt())
     except Exception as error:
@@ -154,6 +223,33 @@ async def process_answer(
             await session.commit()
         log.warning("answer.process failed answer=%s error=%s", answer_id, error)
         raise
+    except BaseException:
+        # Отмена задачи (graceful stop, потеря аренды) или остановка процесса:
+        # это не ошибка ответа, его нужно вернуть под повторную обработку.
+        # shield — чтобы повторная отмена не оборвала сам откат статуса.
+        await asyncio.shield(_mark_interrupted(session, answer_id))
+        raise
+
+
+async def _mark_interrupted(session: AsyncSession, answer_id: UUID) -> None:
+    try:
+        await session.rollback()
+        await session.execute(
+            update(Answer)
+            .where(Answer.id == answer_id, Answer.status == AnswerStatus.processing)
+            .values(status=AnswerStatus.uploaded, processing_error=INTERRUPTED_MESSAGE)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        log.warning("answer.process interrupted answer=%s, returned to uploaded", answer_id)
+    except Exception:  # лог важнее, чем исключение поверх отмены
+        log.exception("answer.process interrupted answer=%s, status not restored", answer_id)
+
+
+async def _touch(session: AsyncSession, answer: Answer) -> None:
+    """Отметить движение по ответу: по ``updated_at`` отличают живую обработку от брошенной."""
+    answer.updated_at = utcnow()
+    await session.commit()
 
 
 async def _run_pipeline(
@@ -182,12 +278,20 @@ async def _run_pipeline(
     meta.update(source.as_dict())
 
     audio_key = audio_key_for(media_key)
-    copied = await ffmpeg.extract_audio(source_path, local.path_for(audio_key), source=source)
+    audio_path = local.path_for(audio_key)
+    copied = await ffmpeg.extract_audio(source_path, audio_path, source=source)
+    if copied and await asyncio.to_thread(_file_size, audio_path) > STT_MAX_AUDIO_BYTES:
+        # Длинный ответ с браузерным битрейтом не влезает в лимит провайдера:
+        # перекодируем в компактную дорожку, в ней те же слова.
+        copied = await ffmpeg.extract_audio(
+            source_path, audio_path, source=source, force_transcode=True
+        )
     meta["audio_copied"] = copied
     if meta.get("duration_s") is None:
         # WebM из MediaRecorder часто без длительности в заголовке; у извлечённого
         # Ogg она есть всегда.
-        meta["duration_s"] = (await ffmpeg.probe(local.path_for(audio_key))).duration_s
+        meta["duration_s"] = (await ffmpeg.probe(audio_path)).duration_s
+    await _touch(session, answer)
 
     if source.is_webm:
         playback_key = playback_key_for(media_key)
@@ -214,10 +318,24 @@ async def _run_pipeline(
         language=language,
         prompt=stt_prompt(title, skills) or None,
     )
+    meta = {**meta, "stt_model": stt.model}
+    # Пока шла обработка, мог сработать срок хранения: транскрипт сохраняем
+    # (он и есть цель), а файлы, созданные после чистки, убираем.
+    current_meta = await session.scalar(select(Answer.media_meta).where(Answer.id == answer.id))
+    purged_at = (current_meta or {}).get("purged_at")
+    if purged_at:
+        for key in (audio_key, meta.get("playback_key")):
+            if key:
+                await storage.delete(key)
+        meta = {key: value for key, value in meta.items() if key != "playback_key"}
+        meta["purged_at"] = purged_at
+        answer.media_key = None
+        answer.audio_key = None
+        log.info("answer.process finished after purge answer=%s: files dropped", answer.id)
     answer.transcript_text = transcript.text
     answer.transcript_segments = _segments(transcript.segments)
     answer.transcript_language = (transcript.language or language)[:_LANGUAGE_MAX_CHARS]
-    answer.media_meta = {**meta, "stt_model": stt.model}
+    answer.media_meta = meta
     answer.status = AnswerStatus.done
     answer.processing_error = None
     answer.processed_at = utcnow()
@@ -240,12 +358,65 @@ async def _run_pipeline(
     }
 
 
+async def requeue_stale_answers(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Вернуть в очередь ответы, брошенные в ``processing`` убитым воркером.
+
+    Статус сбрасывается в ``uploaded`` и ставится задача ``answer.process`` с
+    обычным ключом дедупликации; если по ответу уже есть активная задача,
+    новая не создаётся. Вызывается тиком воркера.
+    """
+    now = now or utcnow()
+    stale_before = now - stale_processing_threshold()
+    stale = (
+        await session.scalars(
+            select(Answer).where(
+                Answer.status == AnswerStatus.processing, Answer.updated_at < stale_before
+            )
+        )
+    ).all()
+    for answer in stale:
+        answer.status = AnswerStatus.uploaded
+        answer.processing_error = INTERRUPTED_MESSAGE
+        await jobs.enqueue(
+            session,
+            ANSWER_PROCESS_JOB,
+            {"answer_id": str(answer.id), "interview_id": str(answer.interview_id)},
+            dedupe_key=f"answer:{answer.id}",
+        )
+        log.warning("answer.process stale answer=%s requeued", answer.id)
+    if stale:
+        await session.commit()
+    return len(stale)
+
+
 # -------------------------------------------------------------- retention
 
 
 def _media_keys(answer: Answer) -> list[str]:
     keys = [answer.media_key, answer.audio_key, (answer.media_meta or {}).get("playback_key")]
     return [key for key in keys if isinstance(key, str) and key]
+
+
+async def _expired_interviews(
+    session: AsyncSession, organization: Organization, cutoff: datetime
+) -> list[UUID]:
+    finished_at = func.coalesce(Interview.completed_at, Interview.cancelled_at)
+    return list(
+        (
+            await session.scalars(
+                select(Interview.id).where(
+                    Interview.organization_id == organization.id,
+                    or_(
+                        and_(finished_at.is_not(None), finished_at < cutoff),
+                        and_(
+                            Interview.status.in_(list(_ABANDONED_STATUSES)),
+                            Interview.expires_at < cutoff,
+                        ),
+                    ),
+                )
+            )
+        ).all()
+    )
 
 
 async def purge_expired_media(
@@ -257,36 +428,35 @@ async def purge_expired_media(
 ) -> dict[str, int]:
     """Удалить медиа ответов интервью, завершённых раньше срока хранения организации.
 
-    Удаляются только файлы (видео, аудио, ремукс): транскрипт, метаданные и
-    оценка остаются — по ним отчёт читается и после чистки. Ключи обнуляются,
-    в ``media_meta.purged_at`` пишется время, поэтому повторный запуск ничего
-    не найдёт — задача идемпотентна.
+    Срок считается от завершения (или отмены) интервью; для брошенных
+    интервью (``in_progress``/``expired``) — от истечения ссылки. Удаляются
+    только файлы (видео, аудио, ремукс): транскрипт, метаданные и оценка
+    остаются — по ним отчёт читается и после чистки. Ключи обнуляются, в
+    ``media_meta.purged_at`` пишется время, поэтому повторный запуск ничего не
+    найдёт — задача идемпотентна. Ответы в ``processing`` пропускаются: их
+    файлы прямо сейчас читает пайплайн, они попадут в следующий прогон.
     """
     storage = storage or get_storage()
     now = now or utcnow()
-    stats = {"organizations": 0, "interviews": 0, "answers": 0, "files": 0}
+    stats = {"organizations": 0, "interviews": 0, "answers": 0, "files": 0, "skipped": 0}
     organizations = (await session.scalars(select(Organization))).all()
     for organization in organizations:
         cutoff = now - timedelta(days=max(int(organization.retention_days), 0))
-        finished_at = func.coalesce(Interview.completed_at, Interview.cancelled_at)
-        interviews = (
-            await session.scalars(
-                select(Interview.id).where(
-                    Interview.organization_id == organization.id,
-                    finished_at.is_not(None),
-                    finished_at < cutoff,
-                )
-            )
-        ).all()
+        interviews = await _expired_interviews(session, organization, cutoff)
         if not interviews:
             continue
         answers = (
-            await session.scalars(select(Answer).where(Answer.interview_id.in_(list(interviews))))
+            await session.scalars(select(Answer).where(Answer.interview_id.in_(interviews)))
         ).all()
         touched_interviews: set[UUID] = set()
+        busy_interviews: set[UUID] = set()
         for answer in answers:
             keys = _media_keys(answer)
             if not keys:
+                continue
+            if answer.status == AnswerStatus.processing:
+                busy_interviews.add(answer.interview_id)
+                stats["skipped"] += 1
                 continue
             removed = 0
             for key in keys:
@@ -319,6 +489,13 @@ async def purge_expired_media(
             stats["organizations"] += 1
             stats["interviews"] += len(touched_interviews)
         if not dry_run:
+            # Каталог интервью целиком: там же остаются осиротевшие .part и
+            # другие файлы, о которых ответы не знают. Но не пока какой-то
+            # ответ интервью ещё обрабатывается.
+            delete_prefix = getattr(storage, "delete_prefix", None)
+            if delete_prefix is not None:
+                for interview_id in touched_interviews - busy_interviews:
+                    await delete_prefix(interview_prefix(interview_id))
             # Коммит на организацию: сбой посреди прогона не откатывает уже
             # удалённые файлы, а повтор просто продолжит с того же места.
             await session.commit()
@@ -349,3 +526,15 @@ async def schedule_daily_purge(
         dedupe_key=dedupe_key,
         max_attempts=3,
     )
+
+
+async def ensure_purge_schedule(session: AsyncSession, *, now: datetime | None = None) -> list[Job]:
+    """Страховка расписания: чистка на сегодня и на завтра должны существовать.
+
+    Самопланирование «задача ставит следующую» рвётся, если задача дня
+    исчерпала попытки; тик воркера восстанавливает цепочку.
+    """
+    now = now or utcnow()
+    today = await schedule_daily_purge(session, day=now.date(), now=now)
+    tomorrow = await schedule_daily_purge(session, day=now.date() + timedelta(days=1), now=now)
+    return [today, tomorrow]

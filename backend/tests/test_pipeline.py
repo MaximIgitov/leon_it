@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
+import os
 import shutil
-import subprocess
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
@@ -45,43 +45,12 @@ from tests.test_candidates import _invite, _token
 from tests.test_interview_room import _consented
 
 FFMPEG_AVAILABLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+IN_CI = os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
+if IN_CI and not FFMPEG_AVAILABLE:
+    # Локально без ffmpeg тесты пропускаются, но в CI молчаливый пропуск
+    # 11 сценариев из 14 означал бы, что пайплайн не проверяется вовсе.
+    raise RuntimeError("ffmpeg/ffprobe обязательны в CI: установите их в job перед тестами")
 needs_ffmpeg = pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe не найдены в PATH")
-
-
-def _generate(path: Path, *codec_args: str) -> Path:
-    command = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-y",
-        "-f",
-        "lavfi",
-        "-i",
-        "testsrc=duration=2:size=320x240:rate=10",
-        "-f",
-        "lavfi",
-        "-i",
-        "sine=frequency=440:duration=2",
-        *codec_args,
-        "-shortest",
-        str(path),
-    ]
-    subprocess.run(command, check=True, capture_output=True)
-    return path
-
-
-@pytest.fixture(scope="module")
-def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
-    if not FFMPEG_AVAILABLE:
-        pytest.skip("ffmpeg/ffprobe не найдены в PATH")
-    root = tmp_path_factory.mktemp("samples")
-    return {
-        "webm": _generate(root / "sample.webm", "-c:v", "libvpx", "-c:a", "libopus"),
-        # Стерео AAC: проверяем, что извлечение сводит в моно.
-        "mp4": _generate(root / "sample.mp4", "-ac", "2", "-c:v", "libx264", "-c:a", "aac"),
-    }
 
 
 # ------------------------------------------------------------ ffmpeg-обёртки

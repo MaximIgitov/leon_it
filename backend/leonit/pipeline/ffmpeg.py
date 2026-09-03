@@ -15,6 +15,7 @@ import contextlib
 import json
 import os
 import shutil
+import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -48,7 +49,12 @@ _TAG_KEYS: frozenset[str] = frozenset(
 
 
 class PipelineError(Exception):
-    """ffmpeg/ffprobe не справился; в сообщении — хвост stderr (обрезанный)."""
+    """ffmpeg/ffprobe не справился; в сообщении — хвост stderr (обрезанный).
+
+    Пути внутри MEDIA_ROOT в сообщении и в ``stderr`` заменены на ``<media>``:
+    текст ошибки показывается сотрудникам в карточке ответа и не должен
+    раскрывать раскладку файловой системы сервера.
+    """
 
     def __init__(self, detail: str, *, stderr: str = "") -> None:
         super().__init__(detail)
@@ -109,9 +115,22 @@ def _command(binary: str, args: Sequence[str]) -> list[str]:
     return command
 
 
+def sanitize_paths(text: str) -> str:
+    """Скрыть абсолютные пути хранилища медиа в тексте ошибки ffmpeg."""
+    root = get_settings().MEDIA_ROOT
+    candidates = {str(root), str(root.resolve())}
+    candidates |= {c.replace("\\", "/") for c in candidates} | {
+        c.replace("/", "\\") for c in candidates
+    }
+    for candidate in sorted(candidates, key=len, reverse=True):
+        if candidate and candidate not in (".", "/"):
+            text = text.replace(candidate, "<media>")
+    return text
+
+
 def _tail(stderr: bytes) -> str:
     text = stderr.decode("utf-8", errors="replace").strip()
-    return text[-_STDERR_TAIL_CHARS:]
+    return sanitize_paths(text[-_STDERR_TAIL_CHARS:])
 
 
 async def run(binary: str, args: Sequence[str], *, timeout_s: float | None = None) -> bytes:
@@ -153,9 +172,14 @@ async def _run_to_file(args: Sequence[str], dst: Path, *, container: str) -> Non
     Так читатели (плеер отчёта, STT) никогда не увидят недописанный файл, а
     повтор задачи после сбоя начинает с чистого листа. Контейнер задаётся явно,
     потому что по суффиксу «.part» ffmpeg его не угадает.
+
+    Имя временного файла случайное, а не по pid: два контейнера воркера с
+    собственными pid-пространствами не должны писать в один файл. Осиротевшие
+    ``.part`` от убитого воркера (SIGKILL, OOM) убираются перед новым запуском.
     """
-    temp = dst.with_name(f"{dst.name}.{os.getpid()}.part")
+    temp = dst.with_name(f"{dst.name}.{uuid.uuid4().hex[:12]}.part")
     await asyncio.to_thread(dst.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(_remove_stale_parts, dst)
     try:
         await run(get_settings().FFMPEG_BIN, [*args, "-f", container, "-y", str(temp)])
         await asyncio.to_thread(os.replace, temp, dst)
@@ -172,6 +196,11 @@ async def _kill(process: asyncio.subprocess.Process) -> None:
 def _unlink_quietly(path: Path) -> None:
     with contextlib.suppress(FileNotFoundError):
         path.unlink()
+
+
+def _remove_stale_parts(dst: Path) -> None:
+    for stale in dst.parent.glob(f"{dst.name}.*.part"):
+        _unlink_quietly(stale)
 
 
 # ------------------------------------------------------------------- probe
@@ -251,27 +280,35 @@ async def probe(path: Path | str) -> MediaProbe:
 # -------------------------------------------------------------- extraction
 
 
-def audio_codec_args(source: MediaProbe) -> tuple[list[str], bool]:
+def audio_codec_args(
+    source: MediaProbe, *, force_transcode: bool = False
+) -> tuple[list[str], bool]:
     """Аргументы кодека для извлечения аудио и признак «дорожка скопирована как есть».
 
     Opus из WebM (MediaRecorder в Chrome/Firefox) кладём в Ogg без перекодирования:
     это бесплатно и без потерь. Всё остальное (AAC из Safari/iOS, PCM) сводим в
     моно 16 кГц Opus 32 кбит/с — этого достаточно для распознавания речи, а
-    файл получается в разы меньше лимита STT-провайдера.
+    файл получается в разы меньше лимита STT-провайдера. ``force_transcode``
+    нужен, когда скопированная дорожка вышла за лимит провайдера (длинный ответ
+    с браузерным битрейтом 64–128 кбит/с).
     """
-    if source.audio_codec == "opus" and source.is_webm:
+    if source.audio_codec == "opus" and source.is_webm and not force_transcode:
         return ["-c:a", "copy"], True
     return ["-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k"], False
 
 
 async def extract_audio(
-    src: Path | str, dst: Path | str, *, source: MediaProbe | None = None
+    src: Path | str,
+    dst: Path | str,
+    *,
+    source: MediaProbe | None = None,
+    force_transcode: bool = False,
 ) -> bool:
     """Извлечь аудио в Ogg/Opus по пути ``dst``; вернуть, была ли дорожка скопирована."""
     source = source if source is not None else await probe(src)
     if not source.has_audio:
         raise PipelineError("в записи нет аудиодорожки")
-    codec_args, copied = audio_codec_args(source)
+    codec_args, copied = audio_codec_args(source, force_transcode=force_transcode)
     await _run_to_file(
         ["-nostdin", "-i", str(src), "-vn", "-map", "0:a:0", *codec_args],
         Path(dst),

@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     FFMPEG_TIMEOUT_S: int = 600
     # Час (UTC), в который воркер запускает ежедневную чистку медиа по сроку хранения.
     RETENTION_PURGE_HOUR_UTC: int = Field(default=3, ge=0, le=23)
+    # Ответ в статусе processing без изменений дольше этого срока считается
+    # брошенным (воркер убит без graceful stop) и берётся в обработку заново.
+    PIPELINE_STALE_PROCESSING_S: int = Field(default=1800, ge=60)
 
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
