@@ -30,6 +30,8 @@ class CandidateCreate(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=64)
     notes: str = Field(default="", max_length=4000)
+    # Идентификатор во внешней системе (HH, Huntflow, своя ATS через API).
+    external_ref: str | None = Field(default=None, max_length=128)
 
     @field_validator("full_name")
     @classmethod

@@ -42,6 +42,8 @@ leonit/
 ├── ai/             шлюз к моделям: провайдеры LLM/STT/TTS, structured output, диагностика
 ├── jobs/           очередь задач в базе и воркер
 ├── media/          подписанные ссылки на файлы и отдача с Range
+├── api_tokens/     API-токены организации и аутентификация публичного API
+├── public_api/     ручки /api/v1 для интеграций и страница документации Scalar
 └── <area>/         предметные области: models · schemas · service · router
 ```
 
@@ -136,3 +138,39 @@ await service.enqueue(
 `sign_media_url(key, ttl_s=900, content_type=..., filename=...)` возвращает
 `/api/media/{token}` (JWT с `typ=media`), роутер проверяет подпись и срок и
 отдаёт файл потоково с поддержкой `Range` (206 / 416) и `HEAD`.
+
+### Публичный API
+
+Версионированные ручки `/api/v1/*` для интеграций (ATS, HR-боты, скрипты):
+вакансии (список, карточка, черновик), кандидаты (список, создание),
+интервью (приглашение со ссылкой, список, статус), отчёт и ранжирование по
+вакансии. Интерактивная документация — `GET /api/docs/api` (Scalar с CDN
+поверх `/api/openapi.json`); она работает и на проде, где Swagger кабинета
+выключен. Отключается через `PUBLIC_API_DOCS_ENABLED=false`.
+
+**Токены.** Выпускает владелец организации (`api_tokens.manage`) через
+`POST /organization/api-tokens`; список — `GET`, отзыв — `DELETE /{id}`.
+Формат `leonit_<token_urlsafe(32)>`: префикс распознаёт secret-scanning. Токен
+показывается один раз, в базе (`api_tokens`) — SHA-256 и первые 12 символов
+для показа в списке. Срок необязателен, отзыв необратим; выпуск и отзыв
+попадают в журнал доступов.
+
+**Области.** `vacancies:read`, `vacancies:write`, `candidates:read`,
+`candidates:write`, `interviews:read`, `reports:read`, `media:read`. Таблица
+`SCOPE_ACTIONS` (`api_tokens/scopes.py`) переводит области в действия
+`authorize`: ручка проверяет область (`require_scope`), сервис — действие.
+Область не может быть шире прав создателя токена. `media:read` открывает в
+отчёте подписанные ссылки на видео; без неё `media_url` — `null`.
+
+**Аутентификация.** `Authorization: Bearer leonit_…` → `ApiActor`
+(`api_tokens/deps.py`) — тот же `Actor`, что у сотрудника, но с набором
+действий из областей (`Actor.actions`), поэтому сервисы кабинета
+переиспользуются без изменений; в `created_by` пишется автор токена.
+Отозванный, просроченный или неизвестный токен — `401`, нехватка области —
+`403`, лимит 600 запросов в минуту на токен — `429` с `Retry-After`.
+`last_used_at` обновляется не чаще раза в минуту.
+
+```bash
+curl https://<стенд>/api/v1/vacancies?status=published \
+  -H "Authorization: Bearer leonit_<токен>"
+```

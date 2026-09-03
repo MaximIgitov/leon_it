@@ -16,7 +16,7 @@ from leonit.core.authz import Actor, authorize
 from leonit.core.config import get_settings
 from leonit.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from leonit.core.time import aware, utcnow
-from leonit.interviews.models import Answer, AnswerStatus
+from leonit.interviews.models import Answer
 from leonit.interviews.service import InterviewRoomService
 from leonit.reports.models import ReportShare, ReportView, ReviewNote
 from leonit.reports.schemas import DecisionIn, NoteIn, ShareCreate
@@ -205,6 +205,100 @@ class ReportService:
             raise NotFoundError("Отчёт не найден")
         return share, interview
 
+    # ------------------------------------------------------------ report body
+
+    async def _final_answers(self, interview_id: UUID) -> list[Answer]:
+        rows = await self.session.scalars(
+            select(Answer)
+            .where(Answer.interview_id == interview_id, Answer.is_final.is_(True))
+            .order_by(Answer.question_index)
+        )
+        return list(rows)
+
+    def _answer_rows(
+        self, interview: Interview, answers: list[Answer], *, with_media: bool
+    ) -> list[dict[str, Any]]:
+        """Ответы с транскриптами; медиа-ссылки — только когда получатель вправе их видеть."""
+        snapshot = {item["index"]: item for item in interview.question_snapshot or []}
+        room = InterviewRoomService(self.session)
+        return [
+            {
+                "id": str(a.id),
+                "question_index": a.question_index,
+                "question_text": (snapshot.get(a.question_index) or {}).get("text"),
+                "attempt": a.attempt,
+                "duration_ms": a.duration_ms,
+                "media_url": room.media_url(a, ttl_s=900) if with_media else None,
+                "media_content_type": a.media_content_type,
+                "transcript_text": a.transcript_text,
+                "transcript_segments": a.transcript_segments,
+                "status": a.status.value,
+            }
+            for a in answers
+        ]
+
+    async def report(
+        self, actor: Actor, interview_id: UUID, *, with_media: bool = True
+    ) -> dict[str, Any]:
+        """Отчёт для сотрудника или интеграции: интервью, заключение, ответы."""
+        interview = await InterviewService(self.session).get(actor, interview_id)
+        authorize(actor, "report.read", vacancy_id=interview.vacancy_id)
+        vacancy = await self.session.get(Vacancy, interview.vacancy_id)
+        answers = await self._final_answers(interview.id)
+        return {
+            "interview": interview,
+            "vacancy_title": vacancy.title if vacancy else "",
+            "evaluation": await self.evaluation_payload(interview.id),
+            "answers": self._answer_rows(interview, answers, with_media=with_media),
+        }
+
+    async def ranking(self, actor: Actor, vacancy_id: UUID) -> list[dict[str, Any]]:
+        """Ранжирование завершивших интервью: «нужна проверка» сверху, дальше по баллу.
+
+        Рекомендация модели и решение человека — независимые поля: сортировка
+        идёт по соответствию, решение показывается рядом и порядок не меняет.
+        """
+        vacancy = await self.session.scalar(
+            select(Vacancy).where(
+                Vacancy.id == vacancy_id, Vacancy.organization_id == actor.organization_id
+            )
+        )
+        if vacancy is None:
+            raise NotFoundError("Вакансия не найдена")
+        authorize(actor, "report.read", vacancy_id=vacancy.id)
+        interviews = [
+            i
+            for i in await InterviewService(self.session).list(actor, vacancy_id=vacancy.id)
+            if i.completed_at is not None
+        ]
+        evaluations = await self.evaluation_payloads([i.id for i in interviews])
+        rows = []
+        for interview in interviews:
+            evaluation = evaluations.get(interview.id) or {}
+            rows.append(
+                {
+                    "interview_id": str(interview.id),
+                    "candidate_id": str(interview.candidate_id),
+                    "candidate_name": interview.consent_full_name or interview.candidate.full_name,
+                    "candidate_email": interview.candidate.email,
+                    "status": interview.status.value,
+                    "fit_score": evaluation.get("fit_score"),
+                    "recommendation": evaluation.get("recommendation"),
+                    "evaluated_at": evaluation.get("evaluated_at"),
+                    "decision": interview.decision,
+                    "completed_at": aware(interview.completed_at),
+                }
+            )
+        rows.sort(
+            key=lambda row: (
+                row["recommendation"] != "needs_check",
+                row["fit_score"] is None,
+                -(row["fit_score"] or 0),
+                row["completed_at"] or utcnow(),
+            )
+        )
+        return rows
+
     async def public_report(
         self, token: str, *, ip: str | None, user_agent: str | None
     ) -> dict[str, Any]:
@@ -212,16 +306,8 @@ class ReportService:
         vacancy = await self.session.get(Vacancy, interview.vacancy_id)
         organization = await self.session.get(Organization, interview.organization_id)
         assert vacancy is not None and organization is not None
-        answers = list(
-            await self.session.scalars(
-                select(Answer)
-                .where(Answer.interview_id == interview.id, Answer.is_final.is_(True))
-                .order_by(Answer.question_index)
-            )
-        )
-        snapshot = {item["index"]: item for item in interview.question_snapshot or []}
-        room = InterviewRoomService(self.session)
-        evaluation = await self._evaluation_payload(interview.id)
+        answers = await self._final_answers(interview.id)
+        evaluation = await self.evaluation_payload(interview.id)
         share.view_count += 1
         share.last_viewed_at = utcnow()
         self.session.add(
@@ -244,23 +330,7 @@ class ReportService:
             "decision": interview.decision,
             "decision_note": interview.decision_note,
             "evaluation": evaluation,
-            "answers": [
-                {
-                    "id": str(a.id),
-                    "question_index": a.question_index,
-                    "question_text": (snapshot.get(a.question_index) or {}).get("text"),
-                    "attempt": a.attempt,
-                    "duration_ms": a.duration_ms,
-                    "media_url": room.media_url(a, ttl_s=900)
-                    if a.status not in (AnswerStatus.recording, AnswerStatus.abandoned)
-                    else None,
-                    "media_content_type": a.media_content_type,
-                    "transcript_text": a.transcript_text,
-                    "transcript_segments": a.transcript_segments,
-                    "status": a.status.value,
-                }
-                for a in answers
-            ],
+            "answers": self._answer_rows(interview, answers, with_media=True),
             "notes": await self._notes(interview.id),
             "can_decide": True,
             "can_note": True,
@@ -268,26 +338,35 @@ class ReportService:
             "expires_at": aware(share.expires_at),
         }
 
-    async def _evaluation_payload(self, interview_id: UUID) -> dict[str, Any] | None:
+    async def evaluation_payload(self, interview_id: UUID) -> dict[str, Any] | None:
+        return (await self.evaluation_payloads([interview_id])).get(interview_id)
+
+    async def evaluation_payloads(
+        self, interview_ids: list[UUID]
+    ) -> dict[UUID, dict[str, Any] | None]:
+        """Заключения модели по интервью одним запросом (для списков и ранжирования)."""
+        if not interview_ids:
+            return {}
         # Модуль оценки подключается отдельно; отчёт открывается и без него.
         try:
             from leonit.evaluation.models import Evaluation  # type: ignore[import-not-found]
         except ImportError:
-            return None
-        evaluation = await self.session.scalar(
-            select(Evaluation).where(Evaluation.interview_id == interview_id)
+            return dict.fromkeys(interview_ids)
+        rows = await self.session.scalars(
+            select(Evaluation).where(Evaluation.interview_id.in_(interview_ids))
         )
-        if evaluation is None:
-            return None
-        return {
-            "status": evaluation.status,
-            "fit_score": evaluation.fit_score,
-            "recommendation": evaluation.recommendation,
-            "output": evaluation.output,
-            "evaluated_at": aware(evaluation.evaluated_at).isoformat()
-            if evaluation.evaluated_at
-            else None,
-        }
+        result: dict[UUID, dict[str, Any] | None] = dict.fromkeys(interview_ids)
+        for evaluation in rows:
+            result[evaluation.interview_id] = {
+                "status": evaluation.status,
+                "fit_score": evaluation.fit_score,
+                "recommendation": evaluation.recommendation,
+                "output": evaluation.output,
+                "evaluated_at": aware(evaluation.evaluated_at).isoformat()
+                if evaluation.evaluated_at
+                else None,
+            }
+        return result
 
     async def public_decide(self, token: str, payload: DecisionIn, *, ip: str | None) -> Interview:
         share, interview = await self._share_by_token(token)
