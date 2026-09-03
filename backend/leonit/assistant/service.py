@@ -74,6 +74,10 @@ class AssistantService:
         rows = await self.session.scalars(
             select(AssistantMessage)
             .where(AssistantMessage.thread_id == thread.id)
-            .order_by(AssistantMessage.created_at.asc(), AssistantMessage.id.asc())
+            .order_by(
+                AssistantMessage.position.asc(),
+                AssistantMessage.created_at.asc(),
+                AssistantMessage.id.asc(),
+            )
         )
         return list(rows)

@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from leonit.core.db import Base, TimestampMixin, uuid_pk
@@ -44,7 +44,7 @@ class AssistantThread(TimestampMixin, Base):
     messages: Mapped[list[AssistantMessage]] = relationship(
         back_populates="thread",
         cascade="all, delete-orphan",
-        order_by="AssistantMessage.created_at",
+        order_by="AssistantMessage.position",
     )
 
 
@@ -62,6 +62,10 @@ class AssistantMessage(Base):
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # Выполненные и предложенные действия: [{kind, tool, params, summary, ...}].
     actions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    # Порядок в треде. Сообщения одного хода пишутся за миллисекунды, и
+    # created_at у них совпадает (на Windows часы идут с шагом ~15 мс), а
+    # случайный uuid как tie-break перемешивал бы историю для модели.
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
