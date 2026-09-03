@@ -201,7 +201,7 @@ async def test_create_vacancy_tool_creates_draft(client: AsyncClient) -> None:
     assert action["result"]["id"] == vacancies[0]["id"]
 
 
-async def test_generate_questions_saves_draft_then_proposes(client: AsyncClient) -> None:
+async def test_generate_questions_only_proposes(client: AsyncClient) -> None:
     _, owner = await register(client)
     vacancy = (
         await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))
@@ -212,16 +212,30 @@ async def test_generate_questions_saves_draft_then_proposes(client: AsyncClient)
     thread = await _thread(client, owner)
     marker = f'[[call:generate_questions {{"vacancy_id": "{vacancy["id"]}", "count": 3}}]]'
 
+    # Даже у вакансии без вопросов инструмент только предлагает: сохраняет человек.
     first = _actions(await _send(client, owner, thread["id"], marker))[0]
-    assert first["kind"] == "done", first
-    saved = (await client.get(f"/api/vacancies/{vacancy['id']}", headers=bearer(owner))).json()
-    assert saved["question_count"] == len(first["result"]["questions"]) > 0
+    assert first["kind"] == "proposed", first
+    assert first["proposal"]["action"] == "replace_questions"
+    generated = first["proposal"]["params"]["questions"]
+    assert len(generated) == len(first["result"]["questions"]) > 0
     # Фейк придумывает несуществующие компетенции — они отфильтрованы по рубрике.
-    assert all(q["competency_ids"] == [] for q in saved["questions"])
+    assert all(q["competency_ids"] == [] for q in generated)
+    untouched = (await client.get(f"/api/vacancies/{vacancy['id']}", headers=bearer(owner))).json()
+    assert untouched["question_count"] == 0
 
+    # Подтверждение — обычной ручкой вакансий, с её правами.
+    applied = await client.put(
+        f"/api/vacancies/{vacancy['id']}/questions",
+        json={"questions": generated},
+        headers=bearer(owner),
+    )
+    assert applied.status_code == 200, applied.text
+    saved = (await client.get(f"/api/vacancies/{vacancy['id']}", headers=bearer(owner))).json()
+    assert saved["question_count"] == len(generated)
+
+    # Теперь предложение добавляет новые вопросы к существующим.
     second = _actions(await _send(client, owner, thread["id"], marker))[0]
     assert second["kind"] == "proposed"
-    assert second["proposal"]["action"] == "replace_questions"
     proposed = second["proposal"]["params"]["questions"]
     assert len(proposed) == saved["question_count"] + len(second["result"]["questions"])
     assert proposed[0]["id"] == saved["questions"][0]["id"]
@@ -456,6 +470,15 @@ async def test_hiring_manager_scope_covers_candidates_reports_and_actions(
     listed = await call("list_candidates")
     assert listed["kind"] == "done"
     assert [row["id"] for row in listed["result"]] == [visible_interview["candidate_id"]]
+
+    # Кандидат, приглашённый и на скрытую вакансию, показывается только своим
+    # интервью: id чужой вакансии и факт участия в ней наружу не уходят.
+    both = await _invite(client, owner, hidden["id"], "visible@example.com")
+    assert both["candidate_id"] == visible_interview["candidate_id"]
+    scoped = await call("list_candidates")
+    row = next(r for r in scoped["result"] if r["id"] == visible_interview["candidate_id"])
+    assert row["interview_count"] == 1
+    assert row["last_vacancy_id"] == allowed["id"]
 
     # Чужие сущности — ошибка инструмента (403/404), а не данные.
     for tool, args in (

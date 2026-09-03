@@ -42,7 +42,7 @@ from leonit.ai.structured import complete_structured
 from leonit.assistant.prompts import data_block
 from leonit.candidates.models import Candidate, Interview, InterviewStatus
 from leonit.candidates.service import CandidateService, InterviewService
-from leonit.core.authz import Actor, authorize, can
+from leonit.core.authz import Actor, authorize, can, visible_vacancy_ids
 from leonit.core.errors import DomainError, ValidationFailedError
 from leonit.core.logging import get_logger
 from leonit.core.time import aware, utcnow
@@ -643,32 +643,28 @@ class ServiceToolbox:
                     competency_ids=competency_ids,
                 ).model_dump(mode="json")
             )
-        if not vacancy.questions:
-            saved = await service.replace_questions(
-                self.actor, vacancy.id, [QuestionIn(**item) for item in proposed]
-            )
-            return ToolResult(
-                "done",
-                "generate_questions",
-                summary=f"Сохранено вопросов черновиком: {len(saved.questions)}",
-                data={
-                    "vacancy_id": str(vacancy.id),
-                    "questions": [_question_row(question) for question in saved.questions],
-                },
-            )
+        # Вопросы никогда не сохраняются сразу: описание вакансии — недоверенный
+        # текст, а replace_questions необратимо заменяет список. Решает человек.
         combined = [_question_in(question) for question in vacancy.questions] + proposed
+        summary = (
+            f"Предложено вопросов: {len(proposed)}. После подтверждения они добавятся "
+            f"к {len(vacancy.questions)} существующим"
+            if vacancy.questions
+            else f"Предложено вопросов: {len(proposed)}. Подтвердите, чтобы сохранить черновиком"
+        )
         return ToolResult(
             "proposed",
             "generate_questions",
-            summary=(
-                f"Предложено вопросов: {len(proposed)}. После подтверждения они добавятся "
-                f"к {len(vacancy.questions)} существующим"
-            ),
+            summary=summary,
             data={"vacancy_id": str(vacancy.id), "questions": proposed},
             proposal={
                 "action": "replace_questions",
                 "params": {"vacancy_id": str(vacancy.id), "questions": combined},
-                "summary": f"Добавить {len(proposed)} вопросов к вакансии «{vacancy.title}»",
+                "summary": (
+                    f"Добавить {len(proposed)} вопросов к вакансии «{vacancy.title}»"
+                    if vacancy.questions
+                    else f"Сохранить {len(proposed)} вопросов в вакансию «{vacancy.title}»"
+                ),
             },
         )
 
@@ -861,9 +857,17 @@ class ServiceToolbox:
 
     async def list_candidates(self, args: ListCandidatesArgs) -> ToolResult:
         candidates = await CandidateService(self.session).list(self.actor, search=args.search)
+        # Нанимающий менеджер видит только интервью по своим вакансиям: иначе в
+        # сводке утекли бы id чужой вакансии и факт участия кандидата в ней.
+        scope = visible_vacancy_ids(self.actor)
         rows = []
         for candidate in candidates[:100]:
-            interviews = sorted(candidate.interviews, key=lambda i: i.invited_at, reverse=True)
+            visible = [
+                item
+                for item in candidate.interviews
+                if scope is None or str(item.vacancy_id) in scope
+            ]
+            interviews = sorted(visible, key=lambda i: i.invited_at, reverse=True)
             rows.append(
                 {
                     "id": str(candidate.id),

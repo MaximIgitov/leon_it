@@ -172,7 +172,7 @@ await service.enqueue(
   | `vacancy_summary` | `report.read` | Воронка по статусам, оценённые, средний балл, топ-3, кого пригласить повторно. |
   | `ranking` | `report.read` | Рейтинг кандидатов — `leonit.evaluation.service.ranking`, тот же, что у `GET /vacancies/{id}/ranking`. |
   | `create_vacancy` | `vacancy.write` | Создаёт **черновик** (обратимо — выполняется сразу). |
-  | `generate_questions` | `vacancy.write` | Если вопросов ещё нет — сохраняет их черновиком (ничего не перезаписывает), иначе — предложение `replace_questions`. |
+  | `generate_questions` | `vacancy.write` | Всегда предложение `replace_questions` (существующие вопросы + новые); сохраняет человек. |
   | `review_questions` | `vacancy.write` | Замечания и улучшенные формулировки — предложение `replace_questions`. |
   | `generate_rubric` | `vacancy.write` | Рубрика с якорными уровнями — предложение `update_rubric`. |
   | `publish_vacancy`, `archive_vacancy` | `vacancy.write` | Предложения `publish` / `archive`. |
