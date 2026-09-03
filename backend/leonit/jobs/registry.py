@@ -24,6 +24,7 @@ JOB_HANDLER_MODULES: tuple[str, ...] = (
     "leonit.jobs.builtin",
     "leonit.notifications.jobs",
     "leonit.interviews.jobs",
+    "leonit.pipeline.jobs",
 )
 
 
@@ -88,3 +89,20 @@ def unregister(kind: str) -> None:
 def load_all_handlers() -> None:
     for module in JOB_HANDLER_MODULES:
         importlib.import_module(module)
+
+
+# Действия при старте воркера (поставить периодическую задачу и т. п.).
+# Регистрируются теми же модулями, что и обработчики, поэтому воркер ничего не
+# знает о предметных областях — они сами говорят, что нужно сделать на старте.
+StartupHook = Callable[[async_sessionmaker[AsyncSession]], Awaitable[None]]
+_startup_hooks: list[StartupHook] = []
+
+
+def on_worker_start(func: StartupHook) -> StartupHook:
+    if func not in _startup_hooks:
+        _startup_hooks.append(func)
+    return func
+
+
+def startup_hooks() -> list[StartupHook]:
+    return list(_startup_hooks)

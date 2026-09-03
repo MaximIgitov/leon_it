@@ -34,6 +34,7 @@ from leonit.jobs.registry import (
     load_all_handlers,
     registered_kinds,
     resource_for,
+    startup_hooks,
 )
 from leonit.models import load_all_models
 
@@ -87,6 +88,15 @@ class Worker:
 
     def request_stop(self) -> None:
         self._stop.set()
+
+    async def run_startup_hooks(self) -> None:
+        """Выполнить хуки старта; сбой одного (например, базы) не останавливает воркер."""
+        for hook in startup_hooks():
+            try:
+                await hook(self.session_maker)
+            except Exception:
+                name = getattr(hook, "__name__", repr(hook))
+                log.exception("worker %s: startup hook %s failed", self.worker_id, name)
 
     async def run_once(self) -> bool:
         """Захватить и обработать одну задачу до конца; False — очередь пуста."""
@@ -266,6 +276,7 @@ class Worker:
 
 async def _serve(worker: Worker, *, once: bool) -> None:
     try:
+        await worker.run_startup_hooks()
         if once:
             while await worker.run_once():
                 pass

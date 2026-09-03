@@ -187,6 +187,7 @@ async def interview_answers(
         AnswerDetail(
             **answer_out(answer).model_dump(),
             media_url=service.media_url(answer),
+            audio_url=service.audio_url(answer),
             media_content_type=answer.media_content_type,
             transcript_text=answer.transcript_text,
             transcript_segments=answer.transcript_segments,
