@@ -1,0 +1,89 @@
+name: Deploy
+
+# Выкат стенда после каждого слияния в main.
+#
+# Обычный путь: образы собираются на GitHub-раннере и кладутся в GHCR, затем
+# self-hosted раннер на сервере тянет их и перезапускает compose.
+# Резервный путь: если сборка на GitHub упала (лимиты, сеть, реестр) или запуск
+# сделан вручную с флагом build_on_server, образы собираются прямо на сервере —
+# выкат не зависит от доступности GHCR.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_on_server:
+        description: "Собрать образы на сервере, минуя GitHub-раннер"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  BACKEND_IMAGE: ghcr.io/maximigitov/leon_it/backend
+  FRONTEND_IMAGE: ghcr.io/maximigitov/leon_it/frontend
+
+jobs:
+  build:
+    name: Сборка образов
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.build_on_server) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Бэкенд
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            ${{ env.BACKEND_IMAGE }}:latest
+      - name: Фронтенд
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          build-args: |
+            NEXT_PUBLIC_BACKEND_API_URL=/api
+            NEXT_PUBLIC_APP_URL=${{ vars.PUBLIC_URL || 'https://89-23-117-80.sslip.io' }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+
+  deploy:
+    name: Выкат на стенд
+    needs: build
+    if: ${{ always() && needs.build.result != 'cancelled' }}
+    runs-on: [self-hosted, leonit-vps]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Вход в GHCR
+        if: ${{ needs.build.result == 'success' }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Выкат
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          # Сборка на GitHub не удалась или пропущена — собираем на сервере.
+          BUILD_ON_SERVER: ${{ needs.build.result != 'success' }}
+        run: bash deploy/deploy.sh
+      - name: Итог
+        run: |
+          echo "build=${{ needs.build.result }} build_on_server=${{ needs.build.result != 'success' }}"
+          curl -fsS -m 15 "https://$(grep -E '^DOMAIN=' /opt/leonit/.env | cut -d= -f2)/api/health"
