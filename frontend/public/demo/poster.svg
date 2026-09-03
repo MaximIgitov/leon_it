@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-label="Демо интервью LeonIT">
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0" r="0.8">
+      <stop offset="0" stop-color="#140AF0" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#0f0f1a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="#0f0f1a"/>
+  <rect width="1280" height="720" fill="url(#glow)"/>
+  <g transform="translate(600 264)">
+    <rect width="80" height="80" rx="18" fill="#140AF0"/>
+    <path d="M20.6 15.6h10.6v38.1h28.1v10.6H20.6z" fill="#fff"/>
+  </g>
+  <text x="640" y="404" text-anchor="middle" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="34" font-weight="700" fill="#ffffff">Демо: как проходит интервью</text>
+  <text x="640" y="446" text-anchor="middle" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="20" fill="#ffffff" fill-opacity="0.6">От ссылки до «Спасибо, интервью завершено!»</text>
+</svg>
