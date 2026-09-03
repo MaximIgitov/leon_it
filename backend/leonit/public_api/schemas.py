@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -72,7 +73,11 @@ class ApiCandidate(BaseModel):
 class ApiInviteRequest(BaseModel):
     model_config = ConfigDict(title="InviteRequest")
 
-    vacancy_id: str = Field(description="Опубликованная вакансия.")
+    vacancy_id: UUID = Field(
+        description=(
+            "Опубликованная вакансия (UUID). Неверный формат — 422, чужая или несуществующая — 404."
+        )
+    )
     full_name: str = Field(min_length=1, max_length=255)
     email: EmailStr = Field(
         description="Кандидат находится по e-mail; если уже есть — используется существующий."

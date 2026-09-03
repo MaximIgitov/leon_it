@@ -234,13 +234,13 @@ class InterviewService:
         *,
         source: CandidateSource = CandidateSource.manual,
     ) -> tuple[Interview, str]:
-        vacancy = await self._vacancy(actor, UUID(payload.vacancy_id))
+        vacancy = await self._vacancy(actor, payload.vacancy_id)
         authorize(actor, "candidate.write", vacancy_id=vacancy.id)
         if vacancy.status != VacancyStatus.published:
             raise ValidationFailedError("Приглашать можно только по опубликованной вакансии")
         candidates = CandidateService(self.session)
         if payload.candidate_id:
-            candidate = await candidates.get(actor, UUID(payload.candidate_id))
+            candidate = await candidates.get(actor, payload.candidate_id)
         elif payload.email and payload.full_name:
             candidate, _ = await candidates.get_or_create(
                 actor, full_name=payload.full_name, email=payload.email, source=source

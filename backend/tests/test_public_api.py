@@ -189,6 +189,26 @@ async def test_public_api_with_token(client: AsyncClient) -> None:
     assert by_email["petr@example.com"]["source"] == "api"
 
 
+async def test_invite_with_malformed_vacancy_id_is_422(client: AsyncClient) -> None:
+    """Неверный UUID отсекает схема: 422 с указанием поля, а не ValueError и 500 из сервиса."""
+    _, owner = await register(client)
+    api = bearer((await _token(client, owner, ["candidates:write"]))["token"])
+    malformed = await client.post(
+        "/api/v1/interviews",
+        json={"vacancy_id": "not-a-uuid", "full_name": "X", "email": "x@example.com"},
+        headers=api,
+    )
+    assert malformed.status_code == 422, malformed.text
+    assert ["body", "vacancy_id"] in [e["loc"] for e in malformed.json()["detail"]]
+
+    unknown = await client.post(
+        "/api/v1/interviews",
+        json={"vacancy_id": str(uuid.uuid4()), "full_name": "X", "email": "x@example.com"},
+        headers=api,
+    )
+    assert unknown.status_code == 404, unknown.text
+
+
 async def test_scopes_gate_endpoints(client: AsyncClient) -> None:
     _, owner = await register(client)
     api = bearer((await _token(client, owner, ["vacancies:read"]))["token"])
