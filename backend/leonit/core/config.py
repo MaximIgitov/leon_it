@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     SMTP_STARTTLS: bool = True
 
+    # --- Ассистент ------------------------------------------------------------
+    # Сколько tool-вызовов подряд может сделать агент за один ход: защита от
+    # зацикливания модели, а не продуктовый лимит.
+    ASSISTANT_MAX_STEPS: int = 8
+    # Сколько последних сообщений треда уходит в контекст модели.
+    ASSISTANT_HISTORY_LIMIT: int = 40
+
     # --- Медиа-пайплайн --------------------------------------------------------
     FFMPEG_BIN: str = "ffmpeg"
     FFPROBE_BIN: str = "ffprobe"
