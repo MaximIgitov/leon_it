@@ -35,12 +35,8 @@ npm-debug.log*
 playwright-report/
 test-results/
 
-# --- media & runtime data ---
+# --- runtime data (медиа кандидатов лежат в MEDIA_ROOT=./data/media) ---
 data/
-media/
-# пакет leonit/media — код, а не данные
-!backend/leonit/media/
-uploads/
 *.log
 
 # --- pytest ---

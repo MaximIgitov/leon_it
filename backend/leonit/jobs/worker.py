@@ -184,14 +184,29 @@ class Worker:
             session_maker=self.session_maker,
             _heartbeat=lambda: self._heartbeat(job.id),
         )
-        handler_task = asyncio.create_task(handler.func(dict(job.payload), context))
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop(job.id, handler_task))
         log.info("job %s kind=%s attempt=%s started", job.id, job.kind, job.attempts)
         try:
-            result = await handler_task
+            handler_task = asyncio.create_task(handler.func(dict(job.payload), context))
+        except Exception as error:
+            # Обработчик даже не стартовал (не та сигнатура, реестр обошли и
+            # подсунули обычную функцию): это баг кода, повтор не поможет, а
+            # без записи результата задача висела бы в running до конца аренды.
+            log.exception("job %s kind=%s could not start handler", job.id, job.kind)
+            await self._fail(job, f"{type(error).__name__}: {error}", retry=False)
+            return
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(job.id, handler_task))
+        try:
+            try:
+                result = await handler_task
+            finally:
+                # Heartbeat останавливается до записи результата: тик между
+                # коммитом «succeeded» и отменой увидел бы задачу не running,
+                # счёл аренду потерянной и навсегда оставил id в _lost_leases.
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
         except asyncio.CancelledError:
             if job.id in self._lost_leases:
-                self._lost_leases.discard(job.id)
                 log.warning("job %s: lease lost, another worker took it over", job.id)
                 return
             # Остановка воркера: вернуть задачу в очередь и продолжить отмену.
@@ -204,9 +219,7 @@ class Worker:
             await self._complete(job, result)
             log.info("job %s kind=%s succeeded", job.id, job.kind)
         finally:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+            self._lost_leases.discard(job.id)
 
     async def _heartbeat_loop(self, job_id: uuid.UUID, handler_task: asyncio.Task[Any]) -> None:
         while True:
