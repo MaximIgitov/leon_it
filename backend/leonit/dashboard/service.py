@@ -51,6 +51,10 @@ DEFAULT_PERIOD_DAYS = 30
 # Ряд по дням не растягиваем на годы: «всё время» у старой организации
 # режем до этого окна, чтобы ответ оставался разумного размера.
 MAX_TIMESERIES_DAYS = 400
+# Границы разумного периода: до них арифметика с часовыми поясами и бакетами по
+# дням остаётся в диапазоне datetime, а запрос за 0001 год — это опечатка.
+MIN_PERIOD_YEAR = 2000
+MAX_PERIOD_AHEAD = timedelta(days=366)
 
 FUNNEL_LABELS: tuple[tuple[str, str], ...] = (
     ("invited", "Приглашены"),
@@ -96,16 +100,27 @@ def resolve_period(
     start: datetime | None, end: datetime | None, *, all_time: bool = False
 ) -> Period:
     """Границы периода из параметров запроса; без параметров — последние 30 дней."""
-    end_at = to_utc(end) if end is not None else utcnow()
+    now = utcnow()
+    end_at = _checked(to_utc(end), now) if end is not None else now
     if all_time:
         start_at = None
     elif start is not None:
-        start_at = to_utc(start)
+        start_at = _checked(to_utc(start), now)
     else:
         start_at = end_at - timedelta(days=DEFAULT_PERIOD_DAYS)
     if start_at is not None and start_at > end_at:
         raise ValidationFailedError("Начало периода позже его конца")
     return Period(start=start_at, end=end_at)
+
+
+def _checked(value: datetime, now: datetime) -> datetime:
+    """Отбросить даты, с которыми ломается арифметика по дням и часовым поясам."""
+    if value.year < MIN_PERIOD_YEAR or value > now + MAX_PERIOD_AHEAD:
+        raise ValidationFailedError(
+            f"Дата вне допустимого диапазона: от {MIN_PERIOD_YEAR} года "
+            "до года вперёд от сегодняшнего дня"
+        )
+    return value
 
 
 # -------------------------------------------------------------------- scope

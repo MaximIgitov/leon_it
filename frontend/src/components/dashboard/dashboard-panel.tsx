@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +24,7 @@ const DailyChart = dynamic(() => import("./daily-chart"), {
 });
 
 const PERIOD_STORAGE_KEY = "leonit.dashboard.period";
+const DEFAULT_PERIOD: DashboardPeriod = "30";
 
 function readStoredPeriod(): DashboardPeriod {
   try {
@@ -32,7 +33,7 @@ function readStoredPeriod(): DashboardPeriod {
   } catch {
     /* приватный режим */
   }
-  return "30";
+  return DEFAULT_PERIOD;
 }
 
 function LoadingState() {
@@ -62,13 +63,16 @@ export function DashboardPanel({
   vacancyId?: string | null;
   toolbar?: React.ReactNode;
 }) {
-  const [period, setPeriod] = useState<DashboardPeriod>("30");
+  // Пока период не восстановлен из localStorage, запросов не делаем: иначе
+  // первый рендер грузил бы «30 дней», а следующий — сохранённый период, и два
+  // ответа гонялись бы за один стейт. На сервере localStorage нет, поэтому
+  // начальное значение — null, а не значение из хранилища (иначе разъедется
+  // гидрация).
+  const [period, setPeriod] = useState<DashboardPeriod | null>(null);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [series, setSeries] = useState<DashboardTimeseries | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => setPeriod(readStoredPeriod()), []);
 
   const changePeriod = (next: DashboardPeriod) => {
     setPeriod(next);
@@ -79,7 +83,15 @@ export function DashboardPanel({
     }
   };
 
+  useEffect(() => setPeriod(readStoredPeriod()), []);
+
+  const requestSeq = useRef(0);
+
   const load = useCallback(async () => {
+    if (period === null) return;
+    // Быстрое переключение периода: ответ прошлого запроса не должен перезаписать
+    // данные текущего, поэтому применяем только последний по счёту.
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     try {
@@ -87,12 +99,14 @@ export function DashboardPanel({
         vacancyId ? dashboardApi.vacancy(vacancyId, period) : dashboardApi.overview(period),
         dashboardApi.timeseries(period, vacancyId),
       ]);
+      if (seq !== requestSeq.current) return;
       setOverview(nextOverview);
       setSeries(nextSeries);
     } catch (caught) {
+      if (seq !== requestSeq.current) return;
       setError(caught instanceof ApiError ? caught.message : "Не удалось загрузить метрики");
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   }, [vacancyId, period]);
 
@@ -104,7 +118,7 @@ export function DashboardPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">{toolbar}</div>
-        <PeriodSwitch value={period} onChange={changePeriod} />
+        <PeriodSwitch value={period ?? DEFAULT_PERIOD} onChange={changePeriod} />
       </div>
 
       {error ? (

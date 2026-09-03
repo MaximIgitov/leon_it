@@ -440,6 +440,16 @@ async def test_period_bounds(client: AsyncClient) -> None:
     )
     assert inverted.status_code == 422
 
+    # Крайние даты: раньше 2000 года и дальше года вперёд отвергаются, а не
+    # роняют арифметику по дням в 500 (OverflowError).
+    for params in (
+        {"from": "0001-01-01T00:00:00", "tz_offset_minutes": -600},
+        {"to": "9999-12-31T23:59:59", "tz_offset_minutes": 720},
+    ):
+        for path in ("/api/dashboard/overview", "/api/dashboard/timeseries"):
+            response = await client.get(path, params=params, headers=bearer(token))
+            assert response.status_code == 422, (path, params, response.text)
+
 
 async def test_timeseries_by_day(client: AsyncClient) -> None:
     _, token = await register(client)
