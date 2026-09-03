@@ -1,0 +1,279 @@
+[
+  {
+    "id": "hh-n-5001",
+    "vacancy": {
+      "id": "hh-v-1001"
+    },
+    "chat_id": "hh-chat-5001",
+    "created_at": "2026-09-01T10:12:00+03:00",
+    "state": {
+      "id": "response"
+    },
+    "resume": {
+      "id": "hh-r-9001",
+      "last_name": "Смирнова",
+      "first_name": "Анна",
+      "middle_name": "Игоревна",
+      "title": "Python-разработчик",
+      "alternate_url": "https://hh.ru/resume/9001",
+      "contact": [
+        {
+          "type": {
+            "id": "email"
+          },
+          "value": "anna.smirnova@example.com"
+        },
+        {
+          "type": {
+            "id": "cell"
+          },
+          "value": {
+            "formatted": "+7 916 123-45-67"
+          }
+        }
+      ],
+      "skill_set": [
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+        "Docker",
+        "Redis"
+      ],
+      "experience": [
+        {
+          "start": "2023-03-01",
+          "end": null,
+          "company": "Финтех-стартап",
+          "position": "Backend-разработчик",
+          "description": "Платёжный шлюз на FastAPI, PostgreSQL, Kafka; покрытие тестами 85%."
+        },
+        {
+          "start": "2020-06-01",
+          "end": "2023-02-01",
+          "company": "Интегратор",
+          "position": "Python-разработчик",
+          "description": "Внутренние сервисы на Django, миграция на asyncio."
+        }
+      ]
+    },
+    "replies": [
+      "Добрый день! Да, удобно послезавтра, ближе к вечеру."
+    ]
+  },
+  {
+    "id": "hh-n-5002",
+    "vacancy": {
+      "id": "hh-v-1001"
+    },
+    "chat_id": "hh-chat-5002",
+    "created_at": "2026-09-01T14:40:00+03:00",
+    "state": {
+      "id": "response"
+    },
+    "resume": {
+      "id": "hh-r-9002",
+      "last_name": "Козлов",
+      "first_name": "Пётр",
+      "middle_name": "Сергеевич",
+      "title": "Senior Python Developer",
+      "alternate_url": "https://hh.ru/resume/9002",
+      "contact": [
+        {
+          "type": {
+            "id": "email"
+          },
+          "value": "petr.kozlov@example.com"
+        },
+        {
+          "type": {
+            "id": "cell"
+          },
+          "value": {
+            "formatted": "+7 903 555-10-20"
+          }
+        }
+      ],
+      "skill_set": [
+        "Python",
+        "Django",
+        "asyncio",
+        "PostgreSQL",
+        "Kubernetes"
+      ],
+      "experience": [
+        {
+          "start": "2019-01-01",
+          "end": null,
+          "company": "Маркетплейс",
+          "position": "Senior Python Developer",
+          "description": "Сервисы каталога и поиска, 50 RPS → 5000 RPS, менторство."
+        }
+      ]
+    },
+    "replies": [
+      "Здравствуйте! А сколько по времени займёт интервью и нужна ли камера?",
+      "Понял, давайте в пятницу."
+    ]
+  },
+  {
+    "id": "hh-n-5003",
+    "vacancy": {
+      "id": "hh-v-1002"
+    },
+    "chat_id": "hh-chat-5003",
+    "created_at": "2026-09-02T09:05:00+03:00",
+    "state": {
+      "id": "response"
+    },
+    "resume": {
+      "id": "hh-r-9003",
+      "last_name": "Новикова",
+      "first_name": "Ольга",
+      "middle_name": "Дмитриевна",
+      "title": "Frontend-разработчик (React)",
+      "alternate_url": "https://hh.ru/resume/9003",
+      "contact": [
+        {
+          "type": {
+            "id": "email"
+          },
+          "value": "olga.novikova@example.com"
+        },
+        {
+          "type": {
+            "id": "cell"
+          },
+          "value": {
+            "formatted": "+7 921 777-33-44"
+          }
+        }
+      ],
+      "skill_set": [
+        "TypeScript",
+        "React",
+        "Next.js",
+        "Redux",
+        "Vitest"
+      ],
+      "experience": [
+        {
+          "start": "2021-09-01",
+          "end": null,
+          "company": "EdTech",
+          "position": "Frontend-разработчик",
+          "description": "Личный кабинет на Next.js, дизайн-система, a11y."
+        }
+      ]
+    },
+    "replies": [
+      "Спасибо, но мне уже не интересно — приняла другой оффер."
+    ]
+  },
+  {
+    "id": "hh-n-5004",
+    "vacancy": {
+      "id": "hh-v-1002"
+    },
+    "chat_id": "hh-chat-5004",
+    "created_at": "2026-09-02T16:20:00+03:00",
+    "state": {
+      "id": "response"
+    },
+    "resume": {
+      "id": "hh-r-9004",
+      "last_name": "Лебедев",
+      "first_name": "Сергей",
+      "middle_name": "",
+      "title": "Junior Frontend Developer",
+      "alternate_url": "https://hh.ru/resume/9004",
+      "contact": [
+        {
+          "type": {
+            "id": "email"
+          },
+          "value": "sergey.lebedev@example.com"
+        },
+        {
+          "type": {
+            "id": "cell"
+          },
+          "value": {
+            "formatted": "+7 999 111-22-33"
+          }
+        }
+      ],
+      "skill_set": [
+        "JavaScript",
+        "React",
+        "HTML",
+        "CSS"
+      ],
+      "experience": [
+        {
+          "start": "2025-02-01",
+          "end": null,
+          "company": "Веб-студия",
+          "position": "Стажёр-разработчик",
+          "description": "Вёрстка лендингов, компоненты на React."
+        }
+      ]
+    },
+    "replies": [
+      "???",
+      "не знаю пока"
+    ]
+  },
+  {
+    "id": "hh-n-5005",
+    "vacancy": {
+      "id": "hh-v-1003"
+    },
+    "chat_id": "hh-chat-5005",
+    "created_at": "2026-09-03T08:45:00+03:00",
+    "state": {
+      "id": "response"
+    },
+    "resume": {
+      "id": "hh-r-9005",
+      "last_name": "Волкова",
+      "first_name": "Мария",
+      "middle_name": "Александровна",
+      "title": "Data Scientist (NLP)",
+      "alternate_url": "https://hh.ru/resume/9005",
+      "contact": [
+        {
+          "type": {
+            "id": "email"
+          },
+          "value": "maria.volkova@example.com"
+        },
+        {
+          "type": {
+            "id": "cell"
+          },
+          "value": {
+            "formatted": "+7 987 654-32-10"
+          }
+        }
+      ],
+      "skill_set": [
+        "Python",
+        "PyTorch",
+        "Transformers",
+        "NLP",
+        "SQL",
+        "MLflow"
+      ],
+      "experience": [
+        {
+          "start": "2022-05-01",
+          "end": null,
+          "company": "Банк",
+          "position": "Data Scientist",
+          "description": "Классификация обращений, RAG-ассистент поддержки, A/B-тесты."
+        }
+      ]
+    },
+    "replies": []
+  }
+]
