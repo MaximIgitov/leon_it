@@ -124,7 +124,7 @@ async def bulk_create_candidates(
             try:
                 await interviews.invite(
                     actor,
-                    InviteRequest(vacancy_id=payload.vacancy_id, candidate_id=str(candidate.id)),
+                    InviteRequest(vacancy_id=payload.vacancy_id, candidate_id=candidate.id),
                 )
                 invited += 1
             except HTTPException:
