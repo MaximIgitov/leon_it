@@ -45,3 +45,6 @@ uploads/
 
 # --- pytest ---
 .pytest_tmp/
+
+# --- рабочие каталоги агентов и локальные настройки Claude Code ---
+.claude/

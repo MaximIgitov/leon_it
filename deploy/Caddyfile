@@ -1,0 +1,50 @@
+# Единственная точка входа на стенд. HTTPS выпускается автоматически
+# (Let's Encrypt, при недоступности — ZeroSSL) для домена из переменной DOMAIN.
+# Без secure context браузер не даёт доступ к камере и микрофону, поэтому
+# стенд не работает по голому IP — используется <ip-через-дефисы>.sslip.io.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Видео-ответы загружаются кусками; один кусок заведомо меньше лимита.
+	request_body {
+		max_size 256MB
+	}
+
+	# API идёт напрямую в FastAPI без буферизации: потоковые загрузки и SSE.
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:8000 {
+			flush_interval -1
+			transport http {
+				read_timeout 600s
+				write_timeout 600s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# Ссылки кандидатов и отчётов содержат токены в пути: в access-логе они
+	# маскируются, чтобы лог не превращался в хранилище секретов.
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "[A-Za-z0-9_-]{32,}" "<token>"
+			}
+		}
+	}
+}

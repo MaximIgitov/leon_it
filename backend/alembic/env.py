@@ -17,14 +17,19 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Явный -x url=... или sqlalchemy.url из ini имеют приоритет над настройками:
+# так тесты гоняют миграции на отдельной базе.
+database_url = context.get_x_argument(as_dictionary=True).get("url") or (
+    config.get_main_option("sqlalchemy.url") or settings.DATABASE_URL
+)
+config.set_main_option("sqlalchemy.url", database_url)
 load_all_models()
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.DATABASE_URL,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+
 from fastapi import APIRouter, Header, HTTPException, status
 from sqlalchemy import text
 
@@ -16,15 +18,17 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def ready(session: DbSession) -> dict[str, str]:
-    """Готов ли сервис принимать трафик: база отвечает."""
+async def ready(session: DbSession, settings: SettingsDep) -> dict[str, str | int]:
+    """Готов ли сервис принимать трафик: база отвечает, есть место под медиа."""
     try:
         await session.execute(text("SELECT 1"))
     except Exception as error:  # любая ошибка базы означает «не готов»
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database unavailable"
         ) from error
-    return {"status": "ready"}
+    settings.MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+    free_mb = shutil.disk_usage(settings.MEDIA_ROOT).free // (1024 * 1024)
+    return {"status": "ready", "media_disk_free_mb": free_mb}
 
 
 @router.get("/metrics")

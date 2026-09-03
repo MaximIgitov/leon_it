@@ -14,7 +14,9 @@ async def test_health_is_alive(client: AsyncClient) -> None:
 async def test_ready_checks_database(client: AsyncClient) -> None:
     response = await client.get("/api/ready")
     assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["media_disk_free_mb"] > 0
 
 
 async def test_metrics_open_outside_production(client: AsyncClient) -> None:
