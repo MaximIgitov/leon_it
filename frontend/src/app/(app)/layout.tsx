@@ -1,8 +1,15 @@
-import { AppShell } from "@/components/layout/app-shell";
+"use client";
 
-// Авторизация и данные пользователя подключаются в PR 4; оболочка кабинета
-// (боковая панель, шапка, тема) уже здесь, чтобы страницы разделов строились
-// на готовом каркасе.
+import { RequireAuth } from "@/components/auth/auth-provider";
+import { AppShell } from "@/components/layout/app-shell";
+import { UserMenu } from "@/components/layout/user-menu";
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <RequireAuth>
+      <AppShell sidebarFooter={(collapsed) => <UserMenu compact={collapsed} />}>
+        {children}
+      </AppShell>
+    </RequireAuth>
+  );
 }

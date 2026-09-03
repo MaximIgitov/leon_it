@@ -169,6 +169,12 @@ function SidebarBody({
   );
 }
 
+type SidebarFooter = React.ReactNode | ((collapsed: boolean) => React.ReactNode);
+
+function renderFooter(footer: SidebarFooter | undefined, collapsed: boolean): React.ReactNode {
+  return typeof footer === "function" ? footer(collapsed) : footer;
+}
+
 export function AppShell({
   children,
   header,
@@ -176,7 +182,7 @@ export function AppShell({
 }: {
   children: React.ReactNode;
   header?: React.ReactNode;
-  sidebarFooter?: React.ReactNode;
+  sidebarFooter?: SidebarFooter;
 }) {
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(false);
@@ -211,7 +217,11 @@ export function AppShell({
             collapsed ? "w-16" : "w-60",
           )}
         >
-          <SidebarBody collapsed={collapsed} onToggle={toggle} footer={sidebarFooter} />
+          <SidebarBody
+            collapsed={collapsed}
+            onToggle={toggle}
+            footer={renderFooter(sidebarFooter, collapsed)}
+          />
         </aside>
       )}
 
@@ -229,7 +239,7 @@ export function AppShell({
                 <SidebarBody
                   collapsed={false}
                   onNavigate={() => setMobileOpen(false)}
-                  footer={sidebarFooter}
+                  footer={renderFooter(sidebarFooter, false)}
                 />
               </SheetContent>
             </Sheet>
