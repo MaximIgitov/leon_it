@@ -16,6 +16,7 @@ from leonit.core.authz import Actor, authorize
 from leonit.core.config import get_settings
 from leonit.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from leonit.core.time import aware, utcnow
+from leonit.interviews.code import code_submission_out, report_transcript
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.interviews.service import InterviewRoomService
 from leonit.reports.models import ReportShare, ReportView, ReviewNote
@@ -255,9 +256,10 @@ class ReportService:
                     if a.status not in (AnswerStatus.recording, AnswerStatus.abandoned)
                     else None,
                     "media_content_type": a.media_content_type,
-                    "transcript_text": a.transcript_text,
+                    "transcript_text": report_transcript(a),
                     "transcript_segments": a.transcript_segments,
                     "status": a.status.value,
+                    "code_submission": code_submission_out(a.code_submission),
                 }
                 for a in answers
             ],
