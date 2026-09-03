@@ -34,6 +34,14 @@ log "устанавливаем compose и Caddyfile в ${APP_DIR}"
 install -m 644 "${REPO_DIR}/deploy/docker-compose.yml" "${COMPOSE_FILE}"
 install -m 644 "${REPO_DIR}/deploy/Caddyfile" "${APP_DIR}/Caddyfile"
 
+# Секреты, появившиеся после bootstrap: генерируем один раз, дальше не трогаем.
+ensure_secret() {
+  local key="$1" value="$2"
+  grep -qE "^${key}=." "${ENV_FILE}" || { log "генерируем ${key}"; upsert_env "${key}" "${value}"; }
+}
+# Ключ Fernet для секретов интеграций (OAuth-токены HH.ru и т. п.).
+ensure_secret DATA_ENCRYPTION_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
+
 upsert_env IMAGE_TAG "${IMAGE_TAG}"
 upsert_env BACKEND_IMAGE "${BACKEND_IMAGE}"
 upsert_env FRONTEND_IMAGE "${FRONTEND_IMAGE}"

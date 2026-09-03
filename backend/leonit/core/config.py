@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # /metrics отдаётся только с этим токеном; без него на проде ручка скрыта.
     METRICS_TOKEN: str | None = None
 
+    # Ключ Fernet для секретов интеграций в БД (см. core.crypto); вторичные —
+    # для ротации, через запятую. Вне production пустой ключ выводится из JWT_SECRET.
+    DATA_ENCRYPTION_KEY: str = ""
+    DATA_ENCRYPTION_KEYS_SECONDARY: str = ""
+
     # --- Кандидатский флоу и письма ------------------------------------------
     # Контакт оператора в юридических текстах и письмах.
     SUPPORT_EMAIL: str = "info@napoleonit.ru"
@@ -163,6 +168,13 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be set to a real secret in production")
             if len(value) < 32:
                 raise ValueError("JWT_SECRET must be at least 32 characters in production")
+        return value
+
+    @field_validator("DATA_ENCRYPTION_KEY")
+    @classmethod
+    def _encryption_key_is_set_in_production(cls, value: str, info) -> str:
+        if info.data.get("ENVIRONMENT") == "production" and not value:
+            raise ValueError("DATA_ENCRYPTION_KEY must be set in production")
         return value
 
     @field_validator("CORS_ORIGINS")
