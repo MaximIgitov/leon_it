@@ -71,18 +71,12 @@ function Breakdown({
   );
 }
 
-export function RecommendationCard({
-  breakdown,
-  available,
-}: {
-  breakdown: RecommendationBreakdown;
-  available: boolean;
-}) {
+export function RecommendationCard({ breakdown }: { breakdown: RecommendationBreakdown }) {
   return (
     <Breakdown
       title="Рекомендации ИИ"
       description="Выводятся из баллов по рубрике по порогам"
-      empty={available ? "Заключений за период ещё нет." : "Модуль оценки не подключён."}
+      empty="Заключений за период ещё нет."
       slices={[
         { key: "fit", label: "Подходит", value: breakdown.fit, className: "bg-success" },
         { key: "needs_check", label: "Нужна проверка", value: breakdown.needs_check, className: "bg-warning" },

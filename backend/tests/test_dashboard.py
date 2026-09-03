@@ -1,53 +1,37 @@
-"""Дашборд: воронка, сроки, разбивки, согласие с ИИ, периметр и период.
+"""Дашборд: воронка, сроки, разбивки, согласие с ИИ, доверие к цитатам, периметр и период.
 
-Модуля оценки на этой ветке нет, поэтому заключения подставляются через
-тестовую таблицу с тем же контрактом колонок (interview_id, fit_score,
-recommendation): сервис получает её через ``evaluation_model`` и гоняет по ней
-настоящий SQL.
+Заключения — настоящие строки ``evaluations``: один сценарий гоняет конвейер
+оценки целиком (комната → транскрипты → ``interview.process`` с фейковым
+провайдером → «Переобработать»), остальные вставляют строки напрямую.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import DateTime, Float, ForeignKey, String, update
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from leonit.candidates.models import Interview
-from leonit.core.db import Base, get_engine, get_session_maker, uuid_pk
+from leonit.core.db import get_session_maker
 from leonit.core.time import utcnow
-from leonit.dashboard import service as dashboard_service
+from leonit.evaluation.jobs import process_interview
+from leonit.evaluation.models import Evaluation, EvaluationStatus
+from leonit.evaluation.prompts import PROMPT_VERSION
 from tests.helpers import bearer, create_invite, invite_token_from_url, register
 from tests.test_candidates import _invite, _published_vacancy, _token
+from tests.test_evaluation import (
+    _completed_interview,
+    _ctx,
+    _finish_answers,
+    _job_by_key,
+    _settle_jobs,
+)
 from tests.test_interview_room import _upload_answer
-
-
-class DashboardEvaluation(Base):
-    """Минимальный двойник заключения модели с тем же контрактом колонок."""
-
-    __tablename__ = "test_dashboard_evaluations"
-
-    id: Mapped[uuid.UUID] = uuid_pk()
-    interview_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False
-    )
-    fit_score: Mapped[float | None] = mapped_column(Float)
-    recommendation: Mapped[str | None] = mapped_column(String(16))
-    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-@pytest.fixture(autouse=True)
-async def _evaluations(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
-    async with get_engine().begin() as connection:
-        await connection.run_sync(DashboardEvaluation.__table__.create, checkfirst=True)
-    monkeypatch.setattr(dashboard_service, "evaluation_model", lambda: DashboardEvaluation)
-    yield
-
 
 # ------------------------------------------------------------------ helpers
 
@@ -92,16 +76,30 @@ async def _set_interview(interview_id: str, **values: Any) -> None:
         await session.commit()
 
 
-async def _add_evaluation(interview_id: str, fit_score: float, recommendation: str) -> None:
+def _evaluation(
+    interview_id: str,
+    *,
+    fit_score: float | None = None,
+    recommendation: str | None = None,
+    quotes: tuple[int, int] | None = None,
+    status: EvaluationStatus = EvaluationStatus.done,
+) -> Evaluation:
+    return Evaluation(
+        interview_id=uuid.UUID(interview_id),
+        status=status,
+        fit_score=fit_score,
+        recommendation=recommendation,
+        quotes_found=quotes[0] if quotes else None,
+        quotes_total=quotes[1] if quotes else None,
+        prompt_version=PROMPT_VERSION,
+        model="test",
+        evaluated_at=utcnow() if status == EvaluationStatus.done else None,
+    )
+
+
+async def _add_evaluation(interview_id: str, **fields: Any) -> None:
     async with get_session_maker()() as session:
-        session.add(
-            DashboardEvaluation(
-                interview_id=uuid.UUID(interview_id),
-                fit_score=fit_score,
-                recommendation=recommendation,
-                evaluated_at=utcnow(),
-            )
-        )
+        session.add(_evaluation(interview_id, **fields))
         await session.commit()
 
 
@@ -114,6 +112,12 @@ async def _decide(client: AsyncClient, token: str, interview_id: str, decision: 
     assert response.status_code == 200, response.text
 
 
+async def _overview(client: AsyncClient, token: str, **params: Any) -> dict:
+    response = await client.get("/api/dashboard/overview", params=params, headers=bearer(token))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def _step(overview: dict, key: str) -> dict:
     return next(step for step in overview["funnel"] if step["key"] == key)
 
@@ -121,7 +125,7 @@ def _step(overview: dict, key: str) -> dict:
 # -------------------------------------------------------------------- tests
 
 
-async def test_overview_funnel_breakdowns_and_agreement(client: AsyncClient) -> None:
+async def test_overview_funnel_breakdowns_agreement_and_quotes(client: AsyncClient) -> None:
     _, token = await register(client, organization_name="Napoleon IT")
     vacancy = await _published_vacancy(client, token)
     emails = [f"{name}@example.com" for name in "abcdefg"]
@@ -143,10 +147,11 @@ async def test_overview_funnel_breakdowns_and_agreement(client: AsyncClient) -> 
 
     # Заключения модели: a совпало (fit ↔ advance), e разошлось (fit ↔ reject),
     # f не считается (hold). Время до результата: 2, 4 и 6 часов → медиана 4.
-    for email, hours, score, recommendation in (
-        ("a", 2, 82.0, "fit"),
-        ("e", 4, 70.0, "fit"),
-        ("f", 6, 35.0, "no_fit"),
+    # Цитаты: у a и f подтверждены все, у e — одна из двух.
+    for email, hours, score, recommendation, quotes in (
+        ("a", 2, 82.0, "fit", (3, 3)),
+        ("e", 4, 70.0, "fit", (1, 2)),
+        ("f", 6, 35.0, "no_fit", (2, 2)),
     ):
         interview = interviews[f"{email}@example.com"]
         current = (
@@ -154,11 +159,13 @@ async def test_overview_funnel_breakdowns_and_agreement(client: AsyncClient) -> 
         ).json()
         completed_at = datetime.fromisoformat(current["completed_at"])
         await _set_interview(interview["id"], evaluated_at=completed_at + timedelta(hours=hours))
-        await _add_evaluation(interview["id"], score, recommendation)
+        await _add_evaluation(
+            interview["id"], fit_score=score, recommendation=recommendation, quotes=quotes
+        )
+    # У g оценка ещё идёт: строка есть, но баллов нет — в метрики не попадает.
+    await _add_evaluation(interviews["g@example.com"]["id"], status=EvaluationStatus.pending)
 
-    response = await client.get("/api/dashboard/overview", headers=bearer(token))
-    assert response.status_code == 200, response.text
-    overview = response.json()
+    overview = await _overview(client, token)
 
     assert [step["count"] for step in overview["funnel"]] == [7, 6, 5, 4, 4, 3, 3]
     assert [step["key"] for step in overview["funnel"]] == [
@@ -191,10 +198,12 @@ async def test_overview_funnel_breakdowns_and_agreement(client: AsyncClient) -> 
 
     assert overview["decision_breakdown"] == {"advance": 1, "reject": 1, "hold": 1, "pending": 1}
     assert overview["recommendation_breakdown"] == {"fit": 2, "no_fit": 1, "needs_check": 0}
-    assert overview["evaluation_available"] is True
     assert overview["avg_fit_score"] == pytest.approx((82 + 70 + 35) / 3, abs=0.1)
     assert overview["ai_agreement"] == pytest.approx(0.5)
     assert overview["ai_agreement_pairs"] == 2
+    # Доверие к заключению: у двух из трёх все цитаты подтверждены.
+    assert overview["quote_verification_rate"] == pytest.approx(2 / 3, abs=1e-3)
+    assert overview["unverified_quotes_evaluations"] == 1
 
     # Интервью проходятся за секунды, заключения — через заданные часы.
     assert 0 <= overview["median_time_to_complete_h"] < 1
@@ -203,24 +212,124 @@ async def test_overview_funnel_breakdowns_and_agreement(client: AsyncClient) -> 
     assert overview["avg_retakes"] == pytest.approx(1 / 8, abs=0.01)
 
 
-async def test_overview_without_evaluation_module(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(dashboard_service, "evaluation_model", lambda: None)
+async def test_overview_follows_real_evaluation_pipeline(client: AsyncClient) -> None:
+    """Конвейер оценки целиком: транскрипты → задача → заключение → переобработка."""
+    token, interview, _, _ = await _completed_interview(client)
+    interview_id = interview["id"]
+
+    # Транскриптов ещё нет: интервью завершено, заключения нет.
+    before = await _overview(client, token)
+    assert before["completed"] == 1 and before["evaluated"] == 0
+    assert before["avg_fit_score"] is None and before["quote_verification_rate"] is None
+    assert before["recommendation_breakdown"] == {"fit": 0, "no_fit": 0, "needs_check": 0}
+
+    await _finish_answers(interview_id)
+    done = await process_interview({"interview_id": interview_id}, _ctx())
+    assert done["status"] == "done"
+
+    # Фейковая модель ставит 2 по каждой компетенции (33.3 → no_fit) и придумывает
+    # цитаты, которых нет в транскрипте, — заключение с неподтверждёнными цитатами.
+    evaluated = await _overview(client, token)
+    assert evaluated["evaluated"] == 1 and _step(evaluated, "evaluated")["count"] == 1
+    assert evaluated["avg_fit_score"] == pytest.approx(33.3)
+    assert evaluated["recommendation_breakdown"] == {"fit": 0, "no_fit": 1, "needs_check": 0}
+    assert evaluated["quote_verification_rate"] == 0
+    assert evaluated["unverified_quotes_evaluations"] == 1
+    assert 0 <= evaluated["median_time_to_result_h"] < 1
+    assert evaluated["ai_agreement"] is None and evaluated["ai_agreement_pairs"] == 0
+
+    # «Переобработать» обнуляет заключение: строка остаётся (та же, вторая не
+    # появляется), но в метриках её нет, пока новая оценка не готова.
+    await _settle_jobs(interview_id)
+    accepted = await client.post(f"/api/interviews/{interview_id}/reprocess", headers=bearer(token))
+    assert accepted.status_code == 202, accepted.text
+    reset = await _overview(client, token)
+    assert reset["completed"] == 1 and reset["evaluated"] == 0
+    assert reset["avg_fit_score"] is None
+    assert reset["recommendation_breakdown"] == {"fit": 0, "no_fit": 0, "needs_check": 0}
+    assert reset["quote_verification_rate"] is None
+    assert reset["unverified_quotes_evaluations"] == 0
+    assert reset["median_time_to_result_h"] is None
+
+    # Задача переобработки доводит оценку до конца — метрики возвращаются.
+    job = await _job_by_key(f"interview:{interview_id}:reprocess:1")
+    assert job is not None
+    redone = await process_interview(job.payload, _ctx())
+    assert redone["status"] == "done"
+    again = await _overview(client, token)
+    assert again["evaluated"] == 1 and again["avg_fit_score"] == pytest.approx(33.3)
+    assert again["unverified_quotes_evaluations"] == 1
+
+    # Решение «отказ» совпадает с рекомендацией no_fit.
+    await _decide(client, token, interview_id, "reject")
+    decided = await _overview(client, token)
+    assert decided["ai_agreement"] == pytest.approx(1.0) and decided["ai_agreement_pairs"] == 1
+    assert decided["decision_breakdown"] == {"advance": 0, "reject": 1, "hold": 0, "pending": 0}
+
+
+async def test_overview_without_evaluations(client: AsyncClient) -> None:
     _, token = await register(client)
     vacancy = await _published_vacancy(client, token)
     await _invite(client, token, vacancy["id"], "solo@example.com")
 
-    overview = (await client.get("/api/dashboard/overview", headers=bearer(token))).json()
-    assert overview["evaluation_available"] is False
+    overview = await _overview(client, token)
     assert overview["avg_fit_score"] is None
     assert overview["ai_agreement"] is None
     assert overview["ai_agreement_pairs"] == 0
+    assert overview["quote_verification_rate"] is None
+    assert overview["unverified_quotes_evaluations"] == 0
     assert overview["recommendation_breakdown"] == {"fit": 0, "no_fit": 0, "needs_check": 0}
     assert overview["invited"] == 1
     assert overview["completion_rate"] == 0
     assert overview["median_time_to_complete_h"] is None
     assert overview["avg_retakes"] is None
+
+
+async def test_quote_verification_ignores_evaluations_without_quotes(client: AsyncClient) -> None:
+    _, token = await register(client)
+    vacancy = await _published_vacancy(client, token)
+    interviews = await _invite_many(
+        client, token, vacancy["id"], ["q1@example.com", "q2@example.com", "q3@example.com"]
+    )
+    # Без цитат проверять нечего: такое заключение не участвует в доле.
+    await _add_evaluation(
+        interviews["q1@example.com"]["id"], fit_score=50.0, recommendation="needs_check"
+    )
+    await _add_evaluation(
+        interviews["q2@example.com"]["id"],
+        fit_score=50.0,
+        recommendation="needs_check",
+        quotes=(0, 0),
+    )
+    only_no_quotes = await _overview(client, token)
+    assert only_no_quotes["quote_verification_rate"] is None
+    assert only_no_quotes["unverified_quotes_evaluations"] == 0
+    assert only_no_quotes["recommendation_breakdown"]["needs_check"] == 2
+
+    await _add_evaluation(
+        interviews["q3@example.com"]["id"], fit_score=80.0, recommendation="fit", quotes=(0, 4)
+    )
+    with_unverified = await _overview(client, token)
+    assert with_unverified["quote_verification_rate"] == 0
+    assert with_unverified["unverified_quotes_evaluations"] == 1
+
+
+async def test_single_evaluation_per_interview(client: AsyncClient) -> None:
+    """Второе заключение на то же интервью невозможно — ``interview_id`` уникален."""
+    _, token = await register(client)
+    vacancy = await _published_vacancy(client, token)
+    interview = await _invite(client, token, vacancy["id"], "one@example.com")
+    await _add_evaluation(interview["id"], fit_score=90.0, recommendation="fit", quotes=(2, 2))
+
+    async with get_session_maker()() as session:
+        session.add(_evaluation(interview["id"], fit_score=10.0, recommendation="no_fit"))
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+    overview = await _overview(client, token)
+    assert overview["recommendation_breakdown"] == {"fit": 1, "no_fit": 0, "needs_check": 0}
+    assert overview["avg_fit_score"] == pytest.approx(90.0)
 
 
 async def test_vacancy_dashboard_and_hiring_manager_scope(client: AsyncClient) -> None:

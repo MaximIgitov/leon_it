@@ -54,8 +54,12 @@ export type DashboardOverview = {
   avg_retakes: number | null;
   ai_agreement: number | null;
   ai_agreement_pairs: number;
+  /** Доверие к заключению: доля заключений, у которых все цитаты найдены в транскрипте. */
+  quote_verification_rate: number | null;
+  /** Заключений с неподтверждёнными цитатами (quotes_found < quotes_total). */
+  unverified_quotes_evaluations: number;
+  /** Доля интервью с integrity-флагами: пока всегда 0, появится с модулем integrity. */
   flags_rate: number;
-  evaluation_available: boolean;
   funnel: FunnelStep[];
   recommendation_breakdown: RecommendationBreakdown;
   decision_breakdown: DecisionBreakdown;

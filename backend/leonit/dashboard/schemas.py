@@ -71,10 +71,22 @@ class DashboardOverview(BaseModel):
     # ai_agreement_pairs — сколько пар решение ↔ рекомендация участвовало.
     ai_agreement: float | None
     ai_agreement_pairs: int
-    # Доля интервью с integrity-флагами: до PR 13 плана всегда 0.
-    flags_rate: float
-    # False — модуль оценки не подключён, поля с баллами и рекомендациями пустые.
-    evaluation_available: bool
+    quote_verification_rate: float | None = Field(
+        description=(
+            "Доверие к заключению: доля готовых заключений, у которых все цитаты "
+            "найдены в транскрипте дословно (quotes_found = quotes_total). "
+            "Заключения без цитат не участвуют; null — проверять пока нечего."
+        )
+    )
+    unverified_quotes_evaluations: int = Field(
+        description="Число заключений с неподтверждёнными цитатами (quotes_found < quotes_total)."
+    )
+    flags_rate: float = Field(
+        description=(
+            "Доля интервью с integrity-флагами. Пока всегда 0 — появится вместе с "
+            "модулем integrity."
+        )
+    )
 
     funnel: list[FunnelStep]
     recommendation_breakdown: RecommendationBreakdown

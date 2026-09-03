@@ -2,17 +2,20 @@
 
 Все цифры выводятся из таймстемпов интервью (``Interview.*_at``): переходы
 статусов уже фиксируют момент каждого шага, отдельной таблицы событий для
-метрик не нужно. Заключения модели живут в модуле оценки, который подключается
-отдельно: без него поля с баллами и рекомендациями пустые, остальное работает.
+метрик не нужно. Заключения берутся из ``evaluations`` модуля оценки: одна
+строка на интервью (``interview_id`` уникален), в метрики попадают только
+готовые (``status = done``) — заключение в работе, после «Переобработать» или
+упавшее баллов и рекомендации не имеет.
 
 Период фильтрует интервью по ``invited_at`` — это когортная воронка: «из
 приглашённых за период столько-то дошли до конца». Ряд по дням, наоборот,
 считает события по их собственным датам: приглашения, завершения и заключения
 одного дня относятся к этому дню.
 
-В SQL — только переносимые агрегаты (count/sum/case): SQLite не знает
+В SQL — только переносимые агрегаты (count/case): SQLite не знает
 ``percentile_cont`` и ``date_trunc``, а интервью в организации немного, поэтому
-медианы и разбивка по дням считаются в Python по выборке значений.
+медианы, разбивка по дням и доли по заключениям считаются в Python по выборке
+значений.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ from leonit.dashboard.schemas import (
     TimeseriesPoint,
     VacancyRef,
 )
+from leonit.evaluation.models import Evaluation, EvaluationStatus
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.vacancies.models import Vacancy, VacancyStatus
 
@@ -62,20 +66,6 @@ FUNNEL_LABELS: tuple[tuple[str, str], ...] = (
 # «Пауза» и «нужна проверка» — не позиция, поэтому такие пары не участвуют.
 AGREEMENT: dict[str, str] = {"advance": "fit", "reject": "no_fit"}
 DEFINITE_RECOMMENDATIONS = frozenset(AGREEMENT.values())
-
-
-def evaluation_model() -> type | None:
-    """Модель заключения, если модуль оценки подключён.
-
-    Контракт тот же, что использует ``reports.service``: колонки
-    ``interview_id``, ``fit_score``, ``recommendation`` (``fit`` /
-    ``no_fit`` / ``needs_check``), одно заключение на интервью.
-    """
-    try:
-        from leonit.evaluation.models import Evaluation  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    return Evaluation
 
 
 # ------------------------------------------------------------------- period
@@ -152,6 +142,30 @@ def _as_uuids(values: list[str]) -> list[UUID]:
             # Периметр хранится строками; мусор в нём просто ничего не открывает.
             continue
     return result
+
+
+# -------------------------------------------------------------- evaluations
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationRow:
+    """Готовое заключение по интервью когорты вместе с решением человека."""
+
+    decision: str | None
+    fit_score: float | None
+    recommendation: str | None
+    quotes_found: int | None
+    quotes_total: int | None
+
+    @property
+    def quotes_checked(self) -> bool:
+        """Есть что проверять: модель привела хотя бы одну цитату."""
+        return bool(self.quotes_total)
+
+    @property
+    def quotes_verified(self) -> bool:
+        """Все цитаты заключения найдены в транскрипте дословно."""
+        return self.quotes_checked and (self.quotes_found or 0) >= (self.quotes_total or 0)
 
 
 # ------------------------------------------------------------------ helpers
@@ -288,23 +302,25 @@ class DashboardService:
 
         to_complete, to_result = await self._durations(cohort)
         avg_retakes = await self._avg_retakes(cohort)
-        model = evaluation_model()
-        evaluations = await self._evaluations(model, cohort) if model is not None else {}
+        evaluations = await self._evaluations(cohort)
 
-        fit_scores = [fit for _, fit, _ in evaluations.values() if fit is not None]
+        fit_scores = [row.fit_score for row in evaluations if row.fit_score is not None]
         recommendations = Counter(
-            recommendation
-            for _, _, recommendation in evaluations.values()
-            if recommendation in RecommendationBreakdown.model_fields
+            row.recommendation
+            for row in evaluations
+            if row.recommendation in RecommendationBreakdown.model_fields
         )
         pairs = [
-            (decision, recommendation)
-            for decision, _, recommendation in evaluations.values()
-            if decision in AGREEMENT and recommendation in DEFINITE_RECOMMENDATIONS
+            row
+            for row in evaluations
+            if row.decision in AGREEMENT and row.recommendation in DEFINITE_RECOMMENDATIONS
         ]
-        agreed = sum(
-            1 for decision, recommendation in pairs if AGREEMENT[decision] == recommendation
-        )
+        agreed = sum(1 for row in pairs if AGREEMENT[row.decision or ""] == row.recommendation)
+        # Доверие к заключению: у скольких заключений все цитаты найдены в
+        # транскрипте дословно. Заключения без цитат проверять нечем — они не
+        # участвуют ни в числителе, ни в знаменателе.
+        checked = [row for row in evaluations if row.quotes_checked]
+        verified = sum(1 for row in checked if row.quotes_verified)
 
         return DashboardOverview(
             period=period.out(),
@@ -330,8 +346,9 @@ class DashboardService:
             avg_retakes=avg_retakes,
             ai_agreement=_ratio(agreed, len(pairs)),
             ai_agreement_pairs=len(pairs),
+            quote_verification_rate=_ratio(verified, len(checked)),
+            unverified_quotes_evaluations=len(checked) - verified,
             flags_rate=0.0,
-            evaluation_available=model is not None,
             funnel=funnel,
             recommendation_breakdown=RecommendationBreakdown(**recommendations),
             decision_breakdown=DecisionBreakdown(
@@ -376,19 +393,35 @@ class DashboardService:
         )
         return None if value is None else round(float(value), 2)
 
-    async def _evaluations(
-        self, model: type, cohort: list[ColumnElement[bool]]
-    ) -> dict[UUID, tuple[str | None, float | None, str | None]]:
-        """interview_id → (решение человека, балл, рекомендация модели)."""
+    async def _evaluations(self, cohort: list[ColumnElement[bool]]) -> list[EvaluationRow]:
+        """Готовые заключения по интервью когорты.
+
+        ``interview_id`` в ``evaluations`` уникален, поэтому строк не больше,
+        чем интервью, и объединять их не нужно: список без «последнее
+        побеждает». Заключения в работе и упавшие (``pending`` / ``failed``)
+        не имеют баллов и в метрики не попадают.
+        """
         rows = await self.session.execute(
-            select(Interview.id, Interview.decision, model.fit_score, model.recommendation)  # type: ignore[attr-defined]
-            .join(model, model.interview_id == Interview.id)  # type: ignore[attr-defined]
-            .where(*cohort)
+            select(
+                Interview.decision,
+                Evaluation.fit_score,
+                Evaluation.recommendation,
+                Evaluation.quotes_found,
+                Evaluation.quotes_total,
+            )
+            .join(Evaluation, Evaluation.interview_id == Interview.id)
+            .where(*cohort, Evaluation.status == EvaluationStatus.done)
         )
-        return {
-            interview_id: (decision, None if fit is None else float(fit), recommendation)
-            for interview_id, decision, fit, recommendation in rows
-        }
+        return [
+            EvaluationRow(
+                decision=decision,
+                fit_score=None if fit is None else float(fit),
+                recommendation=recommendation,
+                quotes_found=quotes_found,
+                quotes_total=quotes_total,
+            )
+            for decision, fit, recommendation, quotes_found, quotes_total in rows
+        ]
 
     async def timeseries(
         self,

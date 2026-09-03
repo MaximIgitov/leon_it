@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CheckCircle2, Gauge, Hourglass, Send } from "lucide-react";
+import { Bot, CheckCircle2, Gauge, Hourglass, Quote, Send } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import type { DashboardOverview } from "@/lib/api/dashboard";
@@ -14,7 +14,18 @@ type Tile = {
   icon: React.ElementType;
 };
 
-function tiles(data: DashboardOverview): Tile[] {
+/** Сетка плиток: две на телефоне, три на планшете, все шесть в одну строку на десктопе. */
+export const TILE_GRID = "grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6";
+export const TILE_COUNT = 6;
+
+function quoteHint(data: DashboardOverview): string {
+  if (data.quote_verification_rate === null) return "заключений с цитатами пока нет";
+  const unverified = data.unverified_quotes_evaluations;
+  if (unverified === 0) return "во всех заключениях цитаты найдены в транскрипте";
+  return `${unverified} ${plural(unverified, ["заключение", "заключения", "заключений"])} с неподтверждёнными цитатами`;
+}
+
+export function tiles(data: DashboardOverview): Tile[] {
   return [
     {
       label: "Приглашений",
@@ -34,11 +45,9 @@ function tiles(data: DashboardOverview): Tile[] {
     {
       label: "Средний балл",
       value: formatScore(data.avg_fit_score),
-      hint: !data.evaluation_available
-        ? "модуль оценки не подключён"
-        : data.evaluated
-          ? `оценено ${data.evaluated} ${plural(data.evaluated, ["интервью", "интервью", "интервью"])} · до результата ${formatHours(data.median_time_to_result_h)}`
-          : "заключений пока нет",
+      hint: data.evaluated
+        ? `оценено ${data.evaluated} ${plural(data.evaluated, ["интервью", "интервью", "интервью"])} · до результата ${formatHours(data.median_time_to_result_h)}`
+        : "заключений пока нет",
       icon: Gauge,
     },
     {
@@ -55,12 +64,19 @@ function tiles(data: DashboardOverview): Tile[] {
         : "нужны решения по оценённым кандидатам",
       icon: Bot,
     },
+    {
+      // Доверие к заключению: у какой доли заключений все цитаты подтверждены транскриптом.
+      label: "Цитаты подтверждены",
+      value: formatPercent(data.quote_verification_rate),
+      hint: quoteHint(data),
+      icon: Quote,
+    },
   ];
 }
 
 export function MetricTiles({ data }: { data: DashboardOverview }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className={TILE_GRID}>
       {tiles(data).map((tile) => (
         <Card key={tile.label}>
           <CardContent className="p-4">

@@ -15,7 +15,7 @@ import {
 
 import { DecisionCard, RecommendationCard } from "./breakdown-cards";
 import { FunnelChart } from "./funnel-chart";
-import { MetricTiles } from "./metric-tiles";
+import { MetricTiles, TILE_COUNT, TILE_GRID } from "./metric-tiles";
 import { PeriodSwitch } from "./period-switch";
 
 const DailyChart = dynamic(() => import("./daily-chart"), {
@@ -38,8 +38,8 @@ function readStoredPeriod(): DashboardPeriod {
 function LoadingState() {
   return (
     <div className="space-y-4" aria-busy>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, index) => (
+      <div className={TILE_GRID}>
+        {Array.from({ length: TILE_COUNT }, (_, index) => (
           <Skeleton key={index} className="h-28" />
         ))}
       </div>
@@ -130,10 +130,7 @@ export function DashboardPanel({
               </Card>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <RecommendationCard
-                breakdown={overview.recommendation_breakdown}
-                available={overview.evaluation_available}
-              />
+              <RecommendationCard breakdown={overview.recommendation_breakdown} />
               <DecisionCard breakdown={overview.decision_breakdown} />
             </div>
             <p className="text-xs text-muted-foreground">
