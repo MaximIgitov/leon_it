@@ -29,6 +29,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { accountsApi, type Invite, type Member, type Role } from "@/lib/api/accounts";
+import { emailsApi, type EmailMessage } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, roleLabel } from "@/lib/roles";
 
@@ -475,6 +476,76 @@ function InvitesCard() {
   );
 }
 
+function EmailsCard() {
+  const showError = useErrorToast();
+  const [emails, setEmails] = useState<EmailMessage[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    emailsApi
+      .list()
+      .then(setEmails)
+      .catch((error) => showError(error, "Не удалось загрузить письма"));
+  }, [showError]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Письма</CardTitle>
+        <CardDescription>
+          Всё, что система отправляла кандидатам и сотрудникам. Без почтового сервера письма
+          остаются здесь — ссылку из приглашения можно скопировать вручную.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto p-0">
+        {emails === null ? (
+          <div className="p-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : emails.length === 0 ? (
+          <p className="p-6 text-sm text-muted-foreground">Писем пока не было.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Кому</TableHead>
+                <TableHead>Тема</TableHead>
+                <TableHead>Статус</TableHead>
+                <TableHead>Когда</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {emails.map((email) => (
+                <TableRow
+                  key={email.id}
+                  className="cursor-pointer"
+                  onClick={() => setOpenId(openId === email.id ? null : email.id)}
+                >
+                  <TableCell className="text-sm">{email.to_email}</TableCell>
+                  <TableCell className="text-sm">
+                    {email.subject}
+                    {openId === email.id ? (
+                      <pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-3 font-sans text-xs">
+                        {email.body_text}
+                      </pre>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={email.status === "sent" ? "default" : email.status === "failed" ? "destructive" : "secondary"}>
+                      {email.status === "sent" ? `отправлено (${email.provider})` : email.status === "failed" ? "ошибка" : "в очереди"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{formatDate(email.sent_at ?? email.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OrganizationPage() {
   const { can } = useAuth();
   if (!can("org.members")) {
@@ -497,6 +568,7 @@ export default function OrganizationPage() {
         <OrganizationCard />
         <MembersCard />
         <InvitesCard />
+        <EmailsCard />
       </div>
     </>
   );

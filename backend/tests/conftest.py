@@ -50,6 +50,29 @@ def _reset_metrics():
 
 
 @pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """Лимитеры живут в памяти процесса; тестовый клиент всегда с одного адреса."""
+    from leonit.accounts.router import (
+        login_rate_limiter,
+        preview_rate_limiter,
+        register_rate_limiter,
+    )
+    from leonit.candidates.router import public_rate_limiter
+
+    limiters = (
+        login_rate_limiter,
+        register_rate_limiter,
+        preview_rate_limiter,
+        public_rate_limiter,
+    )
+    for limiter in limiters:
+        limiter.clear()
+    yield
+    for limiter in limiters:
+        limiter.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_gateway_and_storage():
     # Провайдеры и HTTP-клиенты кэшируются по конфигурации; между тестами
     # event loop меняется, поэтому кэш сбрасываем, а не переиспользуем.

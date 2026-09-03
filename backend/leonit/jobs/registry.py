@@ -21,7 +21,7 @@ RESOURCES: tuple[Resource, ...] = ("llm", "ffmpeg", "default")
 
 # Модули, регистрирующие обработчики; воркер импортирует их на старте
 # (аналог MODEL_MODULES в leonit.models).
-JOB_HANDLER_MODULES: tuple[str, ...] = ("leonit.jobs.builtin",)
+JOB_HANDLER_MODULES: tuple[str, ...] = ("leonit.jobs.builtin", "leonit.notifications.jobs")
 
 
 @dataclass(slots=True)
