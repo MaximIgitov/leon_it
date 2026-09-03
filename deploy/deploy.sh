@@ -42,6 +42,20 @@ ensure_secret() {
 # Ключ Fernet для секретов интеграций (OAuth-токены HH.ru и т. п.).
 ensure_secret DATA_ENCRYPTION_KEY "$(openssl rand -base64 32 | tr '+/' '-_')"
 
+# Секреты из GitHub (SYNC_<ИМЯ>=значение): непустые переносятся в .env.
+while IFS='=' read -r name _; do
+  value="${!name}"
+  [[ -n "${value}" ]] || continue
+  upsert_env "${name#SYNC_}" "${value}"
+  log "обновлено ${name#SYNC_} из секретов"
+done < <(env | grep -E '^SYNC_[A-Z0-9_]+=' || true)
+
+# Есть ключ модели — стенд работает на реальном провайдере, а не на фейке.
+if grep -qE '^MODEL_DEFAULT_API_KEY=.+' "${ENV_FILE}"; then
+  upsert_env MODEL_PROVIDER openai_compatible
+  upsert_env MODEL_ALLOW_FAKE_IN_PRODUCTION false
+fi
+
 upsert_env IMAGE_TAG "${IMAGE_TAG}"
 upsert_env BACKEND_IMAGE "${BACKEND_IMAGE}"
 upsert_env FRONTEND_IMAGE "${FRONTEND_IMAGE}"
