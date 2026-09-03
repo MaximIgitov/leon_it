@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
 import { CalendarClock, Camera, Clock3, ListChecks, Loader2, Mic } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
+import { DeviceCheck, type DeviceCheckResult } from "@/components/interview/device-check";
+import { PracticeQuestion } from "@/components/interview/practice";
+import { InterviewRoom } from "@/components/interview/room";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -134,10 +137,44 @@ function ConsentForm({
   );
 }
 
+type Step = "consent" | "devices" | "practice" | "room";
+
+function practiceKey(token: string): string {
+  return `leonit.practice.${token.slice(0, 16)}`;
+}
+
 export default function InvitationPage() {
   const params = useParams<{ token: string }>();
   const [invitation, setInvitation] = useState<InvitationPublic | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>("consent");
+  const [devices, setDevices] = useState<DeviceCheckResult | null>(null);
+
+  const proceedFromConsent = (next: InvitationPublic) => {
+    setInvitation(next);
+    setStep("devices");
+  };
+
+  const onDevicesReady = (result: DeviceCheckResult) => {
+    setDevices(result);
+    let practiced = false;
+    try {
+      practiced = window.localStorage.getItem(practiceKey(params.token)) === "1";
+    } catch {
+      /* приватный режим */
+    }
+    const wantsPractice = invitation?.practice_question_enabled && !practiced && invitation.status !== "in_progress";
+    setStep(wantsPractice ? "practice" : "room");
+  };
+
+  const onPracticeDone = () => {
+    try {
+      window.localStorage.setItem(practiceKey(params.token), "1");
+    } catch {
+      /* ignore */
+    }
+    setStep("room");
+  };
 
   useEffect(() => {
     publicApi
@@ -199,15 +236,28 @@ export default function InvitationPage() {
         </p>
         <div className="mt-8">
           {invitation.needs_consent ? (
-            <ConsentForm token={params.token} invitation={invitation} onDone={setInvitation} />
-          ) : (
-            <div className="rounded-lg border bg-muted/40 p-4 text-sm">
-              Согласие получено. Проверка камеры и микрофона и комната интервью подключаются
-              следующим шагом разработки.
+            <ConsentForm token={params.token} invitation={invitation} onDone={proceedFromConsent} />
+          ) : step === "consent" || step === "devices" ? (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Проверка камеры и микрофона</h2>
+              <DeviceCheck onReady={onDevicesReady} />
             </div>
-          )}
+          ) : null}
         </div>
       </>
+    );
+  }
+
+  if (invitation && devices && step === "practice") {
+    content = <PracticeQuestion stream={devices.stream} onDone={onPracticeDone} />;
+  }
+  if (invitation && devices && step === "room") {
+    content = (
+      <InterviewRoom
+        token={params.token}
+        devices={devices}
+        onFinished={() => setInvitation({ ...invitation, status: "completed" })}
+      />
     );
   }
 
@@ -217,7 +267,7 @@ export default function InvitationPage() {
         <Logo size={28} />
       </header>
       <main className="flex flex-1 justify-center px-4 pb-16">
-        <div className="w-full max-w-2xl rounded-2xl border bg-card p-6 shadow-sm sm:p-8">{content}</div>
+        <div className={`w-full rounded-2xl border bg-card p-6 shadow-sm sm:p-8 ${step === "room" || step === "practice" || (invitation && !invitation.needs_consent && step === "devices") ? "max-w-4xl" : "max-w-2xl"}`}>{content}</div>
       </main>
     </div>
   );
