@@ -88,7 +88,10 @@ export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?
               {items.map((interview) => (
                 <TableRow key={interview.id}>
                   <TableCell>
-                    <Link href={`/candidates/${interview.candidate_id}`} className="font-medium hover:underline">
+                    <Link
+                      href={`/vacancies/${interview.vacancy_id}/interviews/${interview.id}`}
+                      className="font-medium hover:underline"
+                    >
                       {interview.candidate_name}
                     </Link>
                     <div className="text-xs text-muted-foreground">{interview.candidate_email}</div>

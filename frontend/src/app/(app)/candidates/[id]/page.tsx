@@ -50,7 +50,10 @@ export default function CandidatePage() {
                 {interviews.map((interview) => (
                   <li key={interview.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                     <div>
-                      <Link href={`/vacancies/${interview.vacancy_id}`} className="font-medium hover:underline">
+                      <Link
+                        href={`/vacancies/${interview.vacancy_id}/interviews/${interview.id}`}
+                        className="font-medium hover:underline"
+                      >
                         {interview.vacancy_title}
                       </Link>
                       <div className="text-xs text-muted-foreground">
