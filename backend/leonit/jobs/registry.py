@@ -8,6 +8,7 @@ CPU, а лишние параллельные запросы к моделям �
 from __future__ import annotations
 
 import importlib
+import inspect
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -55,6 +56,11 @@ def job(kind: str, *, resource: Resource = "default", replace: bool = False):
         raise ValueError(f"unknown resource {resource!r}; expected one of {RESOURCES}")
 
     def decorator(func: Handler) -> Handler:
+        # Обычная функция вместо coroutine — ошибка на импорте модуля, а не
+        # TypeError в воркере, из-за которого задача зависала бы в running до
+        # истечения аренды.
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError(f"job handler for {kind!r} must be an async function, got {func!r}")
         existing = _registry.get(kind)
         if existing is not None and existing.func is not func and not replace:
             raise ValueError(f"job kind {kind!r} is already registered")

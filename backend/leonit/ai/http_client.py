@@ -15,18 +15,26 @@ _DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 _clients: dict[tuple[str, str | None], httpx.AsyncClient] = {}
 
 
+def new_http_client(base_url: str, proxy_url: str | None = None) -> httpx.AsyncClient:
+    """Клиент вне общего пула: вызывающий сам закрывает его (``aclose``).
+
+    Нужен для разовых проверок с ad-hoc настройками — иначе каждый base URL,
+    введённый на странице настроек, оседал бы в пуле до остановки процесса.
+    """
+    return httpx.AsyncClient(
+        base_url=base_url.rstrip("/"),
+        proxy=proxy_url or None,
+        limits=_LIMITS,
+        timeout=_DEFAULT_TIMEOUT,
+        follow_redirects=False,
+    )
+
+
 def get_http_client(base_url: str, proxy_url: str | None = None) -> httpx.AsyncClient:
     key = (base_url.rstrip("/"), proxy_url or None)
     client = _clients.get(key)
     if client is None or client.is_closed:
-        client = httpx.AsyncClient(
-            base_url=key[0],
-            proxy=proxy_url or None,
-            limits=_LIMITS,
-            timeout=_DEFAULT_TIMEOUT,
-            follow_redirects=False,
-        )
-        _clients[key] = client
+        client = _clients[key] = new_http_client(key[0], proxy_url)
     return client
 
 

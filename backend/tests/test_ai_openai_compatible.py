@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -201,6 +202,129 @@ def test_circuit_breaker_half_open_recovers_and_retrips() -> None:
     assert breaker.state == "closed" and breaker.failures == 0
 
 
+def test_circuit_breaker_release_probe_frees_half_open_slot() -> None:
+    now = [0.0]
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_s=10, clock=lambda: now[0])
+    breaker.record_failure()
+    now[0] = 10.0
+    assert breaker.allow() and not breaker.allow()
+    breaker.release_probe()
+    assert breaker.state == "half_open" and breaker.allow()
+    # В закрытом состоянии возврат слота ничего не ломает.
+    breaker.record_success()
+    breaker.release_probe()
+    assert breaker.state == "closed" and breaker.allow()
+
+
+def _tripped_client(http: httpx.AsyncClient, now: list[float]) -> OpenAICompatibleClient:
+    """Клиент с breaker, который открывается после одного сбоя и ждёт 10 «секунд»."""
+    return _client(
+        http,
+        retry=RetryPolicy(max_attempts=1, backoff_base_s=0),
+        breaker=CircuitBreaker(failure_threshold=1, recovery_timeout_s=10, clock=lambda: now[0]),
+    )
+
+
+_SCHEMA_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {"name": "X", "schema": {"type": "object"}},
+}
+
+
+async def test_half_open_probe_rejected_with_400_closes_breaker(http: httpx.AsyncClient) -> None:
+    now = [0.0]
+    client = _tripped_client(http, now)
+    llm = OpenAICompatibleLLM(_config(), client=client)
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/chat/completions").mock(
+            side_effect=[
+                httpx.Response(503, text="down"),
+                httpx.Response(400, json={"error": {"message": "json_schema is not supported"}}),
+                httpx.Response(200, json=_chat_payload('{"a": 1}')),
+            ]
+        )
+        with pytest.raises(ProviderUnavailableError, match="HTTP 503"):
+            await llm.chat([{"role": "user", "content": "hi"}])
+        assert client.breaker.state == "open"
+        now[0] = 10.0
+        assert client.breaker.state == "half_open"
+        # Пробный запрос получил 400: провайдер жив, контур закрыт, и фолбэк на
+        # json_object проходит вторым запросом, а не упирается в «breaker is open».
+        response = await llm.chat(
+            [{"role": "user", "content": "hi"}], response_format=_SCHEMA_FORMAT
+        )
+    assert response.content == '{"a": 1}'
+    assert route.call_count == 3
+    assert client.breaker.state == "closed" and client.breaker.allow()
+
+
+async def test_half_open_probe_with_401_does_not_jam_breaker(http: httpx.AsyncClient) -> None:
+    now = [0.0]
+    client = _tripped_client(http, now)
+    llm = OpenAICompatibleLLM(_config(), client=client)
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.post("/chat/completions").mock(
+            side_effect=[httpx.Response(503, text="down"), httpx.Response(401, json={})]
+        )
+        with pytest.raises(ProviderUnavailableError):
+            await llm.chat([{"role": "user", "content": "hi"}])
+        now[0] = 10.0
+        with pytest.raises(ProviderConfigurationError, match="authentication"):
+            await llm.chat([{"role": "user", "content": "hi"}])
+    assert client.breaker.state == "closed" and client.breaker.allow()
+
+
+async def test_cancelled_probe_returns_half_open_slot(http: httpx.AsyncClient) -> None:
+    now = [0.0]
+    client = _tripped_client(http, now)
+    llm = OpenAICompatibleLLM(_config(), client=client)
+
+    # Считаем попытки сами: respx не записывает вызов, если side effect бросил
+    # BaseException (CancelledError — не Exception).
+    attempts = 0
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503, text="down")
+        if attempts == 2:
+            raise asyncio.CancelledError
+        return httpx.Response(200, json=_chat_payload("ok"))
+
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.post("/chat/completions").mock(side_effect=respond)
+        with pytest.raises(ProviderUnavailableError):
+            await llm.chat([{"role": "user", "content": "hi"}])
+        now[0] = 10.0
+        with pytest.raises(asyncio.CancelledError):
+            await llm.chat([{"role": "user", "content": "hi"}])
+        # Исход пробы неизвестен: слот возвращён, следующий запрос снова пробный.
+        assert client.breaker.state == "half_open"
+        response = await llm.chat([{"role": "user", "content": "hi"}])
+    assert response.content == "ok"
+    assert attempts == 3
+    assert client.breaker.state == "closed"
+
+
+async def test_missing_api_key_does_not_touch_breaker(http: httpx.AsyncClient) -> None:
+    now = [0.0]
+    client = _client(
+        http,
+        api_key=None,
+        breaker=CircuitBreaker(failure_threshold=1, recovery_timeout_s=10, clock=lambda: now[0]),
+    )
+    client.breaker.record_failure()
+    now[0] = 10.0
+    llm = OpenAICompatibleLLM(_config(api_key=None), client=client)
+    with (
+        respx.mock(base_url=BASE_URL, assert_all_called=False),
+        pytest.raises(ProviderConfigurationError, match="API key"),
+    ):
+        await llm.chat([{"role": "user", "content": "hi"}])
+    assert client.breaker.state == "half_open" and client.breaker.allow()
+
+
 async def test_json_schema_falls_back_to_json_object_on_400(http: httpx.AsyncClient) -> None:
     llm = OpenAICompatibleLLM(_config(), client=_client(http))
     schema_format = {
@@ -236,6 +360,27 @@ async def test_other_400_is_response_error(http: httpx.AsyncClient) -> None:
         with pytest.raises(ProviderResponseError, match="HTTP 400: bad") as info:
             await llm.chat([{"role": "user", "content": "hi"}])
     assert info.value.upstream_status == 400
+    assert info.value.upstream_message == "bad"
+
+
+async def test_json_schema_fallback_requires_format_rejection(http: httpx.AsyncClient) -> None:
+    llm = OpenAICompatibleLLM(_config(), client=_client(http))
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/chat/completions").mock(
+            side_effect=[
+                httpx.Response(400, json={"error": {"message": "messages[0].role: invalid"}}),
+                httpx.Response(200, json=_chat_payload('{"a": 1}')),
+            ]
+        )
+        # 400 не про формат ответа: исходная ошибка наружу, второго запроса нет.
+        with pytest.raises(ProviderResponseError, match="invalid") as info:
+            await llm.chat([{"role": "user", "content": "hi"}], response_format=_SCHEMA_FORMAT)
+        assert info.value.upstream_status == 400
+        assert route.call_count == 1
+        # И признак «json_schema не поддерживается» не выставлен.
+        await llm.chat([{"role": "user", "content": "hi"}], response_format=_SCHEMA_FORMAT)
+    bodies = [json.loads(call.request.content) for call in route.calls]
+    assert [body["response_format"]["type"] for body in bodies] == ["json_schema", "json_schema"]
 
 
 def _sse(*events: dict | str) -> bytes:
@@ -321,6 +466,72 @@ async def test_stream_chat_retries_failed_status_before_streaming(http: httpx.As
     assert [delta.content for delta in deltas] == ["ok"]
 
 
+class _BrokenStream(httpx.AsyncByteStream):
+    """Тело, которое обрывается после первых чанков: провайдер умер посреди стрима."""
+
+    def __init__(self, chunks: list[bytes], error: Exception) -> None:
+        self._chunks = chunks
+        self._error = error
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            yield chunk
+        raise self._error
+
+
+def _sse_response(body: bytes | httpx.AsyncByteStream) -> httpx.Response:
+    headers = {"content-type": "text/event-stream"}
+    if isinstance(body, bytes):
+        return httpx.Response(200, content=body, headers=headers)
+    return httpx.Response(200, stream=body, headers=headers)
+
+
+async def test_stream_skips_empty_data_and_comments(http: httpx.AsyncClient) -> None:
+    llm = OpenAICompatibleLLM(_config(), client=_client(http))
+    # Прокси держат соединение комментариями и пустыми data: это не чанки.
+    body = b": keep-alive\n\ndata:\n\ndata: \n\n" + _sse(
+        _chunk({"content": "ok"}, "stop"), "[DONE]"
+    )
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.post("/chat/completions").mock(return_value=_sse_response(body))
+        deltas = [delta async for delta in llm.stream_chat([{"role": "user", "content": "hi"}])]
+    assert [delta.content for delta in deltas] == ["ok"]
+    assert deltas[0].finish_reason == "stop"
+
+
+async def test_stream_error_event_raises_response_error(http: httpx.AsyncClient) -> None:
+    llm = OpenAICompatibleLLM(_config(), client=_client(http))
+    body = _sse(
+        _chunk({"content": "част"}),
+        {"error": {"message": "quota exceeded", "type": "insufficient_quota", "code": 429}},
+    )
+    collected: list[str | None] = []
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.post("/chat/completions").mock(return_value=_sse_response(body))
+        with pytest.raises(ProviderResponseError, match="quota exceeded") as info:
+            async for delta in llm.stream_chat([{"role": "user", "content": "hi"}]):
+                collected.append(delta.content)
+    assert collected == ["част"]
+    assert info.value.upstream_message == "quota exceeded"
+
+
+async def test_stream_transport_error_is_unavailable_and_trips_breaker(
+    http: httpx.AsyncClient,
+) -> None:
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_s=60)
+    llm = OpenAICompatibleLLM(_config(), client=_client(http, breaker=breaker))
+    stream = _BrokenStream([_sse(_chunk({"content": "нач"}))], httpx.ReadError("connection reset"))
+    collected: list[str | None] = []
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.post("/chat/completions").mock(return_value=_sse_response(stream))
+        with pytest.raises(ProviderUnavailableError, match="ReadError"):
+            async for delta in llm.stream_chat([{"role": "user", "content": "hi"}]):
+                collected.append(delta.content)
+    assert collected == ["нач"]
+    # Обрыв тела — такой же отказ провайдера, как обрыв до ответа.
+    assert breaker.failures == 1 and breaker.state == "open"
+
+
 async def test_stt_verbose_json_returns_segments(http: httpx.AsyncClient) -> None:
     stt = OpenAICompatibleSTT(_config("stt"), client=_client(http, "stt"))
     payload = {
@@ -369,6 +580,41 @@ async def test_stt_without_segments_builds_pseudo_segment(http: httpx.AsyncClien
     assert len(transcript.segments) == 1
     assert transcript.segments[0].text == "Только текст"
     assert transcript.language == "ru"
+
+
+async def test_stt_remembers_verbose_json_unsupported(http: httpx.AsyncClient) -> None:
+    stt = OpenAICompatibleSTT(_config("stt"), client=_client(http, "stt"))
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/audio/transcriptions").mock(
+            side_effect=[
+                httpx.Response(400, json={"error": {"message": "response_format verbose_json"}}),
+                httpx.Response(200, json={"text": "раз"}),
+                httpx.Response(200, json={"text": "два"}),
+            ]
+        )
+        await stt.transcribe(b"\x00\x01", content_type="audio/webm")
+        second = await stt.transcribe(b"\x00\x01", content_type="audio/webm")
+    assert second.text == "два"
+    # Второй ответ кандидата не платит лишним запросом: сразу json.
+    assert route.call_count == 3
+    assert b'name="response_format"\r\n\r\njson' in route.calls.last.request.content
+
+
+async def test_stt_json_fallback_requires_format_rejection(http: httpx.AsyncClient) -> None:
+    stt = OpenAICompatibleSTT(_config("stt"), client=_client(http, "stt"))
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/audio/transcriptions").mock(
+            side_effect=[
+                httpx.Response(400, json={"error": {"message": "Invalid file format"}}),
+                httpx.Response(200, json={"text": "не должно дойти"}),
+            ]
+        )
+        with pytest.raises(ProviderResponseError, match="Invalid file format"):
+            await stt.transcribe(b"\x00\x01", content_type="audio/webm")
+        assert route.call_count == 1
+        # Ложный вывод «verbose_json не поддерживается» не запомнен.
+        await stt.transcribe(b"\x00\x01", content_type="audio/webm")
+    assert b'name="response_format"\r\n\r\nverbose_json' in route.calls.last.request.content
 
 
 async def test_stt_rejects_files_over_limit(http: httpx.AsyncClient) -> None:

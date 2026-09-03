@@ -66,6 +66,17 @@ class CircuitBreaker:
         if self._state == "half_open" or self._failures >= self.failure_threshold:
             self._trip()
 
+    def release_probe(self) -> None:
+        """Вернуть слот пробного запроса, исход которого так и не стал известен.
+
+        Пробу могли отменить (``CancelledError``) или она упала по причине, не
+        связанной с провайдером. Без возврата слота ``half_open`` с одним
+        разрешённым вызовом «заклинивает»: ``allow()`` отказывает всем, а
+        закрыть или снова открыть контур некому.
+        """
+        if self._state == "half_open" and self._half_open_calls > 0:
+            self._half_open_calls -= 1
+
     def reset(self) -> None:
         self.record_success()
 
