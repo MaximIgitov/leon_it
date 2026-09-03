@@ -1,19 +1,15 @@
 """Обработчики задач интервью.
 
-Реальная обработка (извлечение аудио, транскрибация, оценка) подключается в
-следующих шагах; сейчас задачи регистрируются, чтобы завершение ответа и
-интервью уже ставило их в очередь, а воркер не падал на неизвестном виде.
+Обработка ответа (``answer.process``) живёт в ``leonit.pipeline.jobs``; здесь
+остаётся оценка интервью целиком: она подключается следующим шагом, а задача
+регистрируется уже сейчас, чтобы завершение интервью ставило её в очередь и
+воркер не падал на неизвестном виде.
 """
 
 from __future__ import annotations
 
-from leonit.interviews.service import ANSWER_PROCESS_JOB, INTERVIEW_PROCESS_JOB
+from leonit.interviews.service import INTERVIEW_PROCESS_JOB
 from leonit.jobs.registry import JobContext, job
-
-
-@job(ANSWER_PROCESS_JOB, resource="ffmpeg")
-async def process_answer(payload: dict, ctx: JobContext) -> dict | None:
-    return {"skipped": "media pipeline is not wired yet", "answer_id": payload.get("answer_id")}
 
 
 @job(INTERVIEW_PROCESS_JOB, resource="llm")

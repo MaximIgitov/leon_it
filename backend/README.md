@@ -42,6 +42,7 @@ leonit/
 ├── ai/             шлюз к моделям: провайдеры LLM/STT/TTS, structured output, диагностика
 ├── jobs/           очередь задач в базе и воркер
 ├── media/          подписанные ссылки на файлы и отдача с Range
+├── pipeline/       медиа-пайплайн ответа: ffmpeg, транскрибация, срок хранения
 └── <area>/         предметные области: models · schemas · service · router
 ```
 
@@ -125,6 +126,12 @@ await service.enqueue(
 3 llm, 4 default; по SIGTERM/SIGINT новые задачи не берутся, текущие
 дорабатывают до 60 с, остальные возвращаются в очередь без потери попытки.
 
+Хуки воркера (`jobs/registry.py`): `@on_worker_start` выполняется один раз
+после старта (поставить периодическую задачу), `@on_worker_tick` — сразу после
+старта и затем раз в `Worker.tick_interval_s` (час) независимо от того, чем
+закончились предыдущие задачи: сюда ставят страховку расписаний и возврат
+брошенных сущностей в очередь. Сбой хука пишется в лог и не останавливает воркер.
+
 ### `core/storage.py` и `media/` — файлы
 
 `Storage` — абстракция над томом (`LocalStorage` под `MEDIA_ROOT`): `put`,
@@ -136,3 +143,81 @@ await service.enqueue(
 `sign_media_url(key, ttl_s=900, content_type=..., filename=...)` возвращает
 `/api/media/{token}` (JWT с `typ=media`), роутер проверяет подпись и срок и
 отдаёт файл потоково с поддержкой `Range` (206 / 416) и `HEAD`.
+
+### `pipeline/` — медиа-пайплайн
+
+Видео на сервере никогда не перекодируется: оригинал ответа хранится как
+записал браузер. После `complete` записи в очередь встаёт задача
+`answer.process` (ресурс `ffmpeg` — один процесс на воркер), которая делает
+четыре шага (`pipeline/service.py`):
+
+1. `ffprobe` → `answer.media_meta`: `duration_s`, `format_name`, кодеки,
+   размер кадра, частота кадров, `tags` (`format.encoder`,
+   `video.handler_name`, …). По тегам integrity отличает MediaRecorder
+   Chrome/Safari от Lavf/OBS/HandBrake — это «истина» о том, чем записан файл.
+2. Аудио → `answer.audio_key` (`….ogg` рядом с видео). Opus из WebM копируется
+   без перекодирования (`-c:a copy`), остальное (AAC из Safari/iOS) сводится в
+   моно 16 кГц Opus 32 кбит/с — достаточно для STT и в разы меньше лимита
+   провайдера.
+3. Для WebM — ремукс `-c copy` в `….playback.webm` (`media_meta.playback_key`):
+   MediaRecorder не пишет длительность и cues, без ремукса перемотка к цитате
+   в отчёте не работает. `InterviewRoomService.media_url` отдаёт ремукс, если
+   он есть, `audio_url` — аудио (поле `audio_url` в `GET /interviews/{id}/answers`).
+   Сбой ремукса обработку не останавливает (`media_meta.playback_error`).
+4. STT: `get_stt().transcribe(audio, content_type="audio/ogg",
+   language=<язык вакансии>, prompt=<название вакансии и её навыки>)` →
+   `transcript_text`, `transcript_segments` (`[{start_s, end_s, text}]`),
+   `transcript_language`.
+
+Статусы ответа: `uploaded`/`failed` → `processing` → `done` (`processed_at`)
+или `failed` (`processing_error`, до 2000 символов) с пробросом исключения —
+очередь повторит задачу с паузой, а повтор корректно стартует из `failed`.
+Метаданные, аудио и ремукс коммитятся до вызова STT: если упал провайдер,
+аудио у сотрудника уже есть.
+
+Переход в `processing` — один условный `UPDATE` (`claim_answer`): два воркера
+не возьмут один ответ, даже если очередь отдала задачу «зомби»-перехватом.
+Ответ, который прямо сейчас держит живой воркер, даёт `AnswerBusyError` —
+очередь повторит задачу позже. Отмена обработки (graceful stop воркера,
+потеря аренды) возвращает ответ в `uploaded` с пометкой в `processing_error`.
+Ответ, брошенный в `processing` убитым воркером (SIGKILL, OOM), считается
+протухшим, когда `updated_at` старше `PIPELINE_STALE_PROCESSING_S` (30 минут;
+пайплайн двигает `updated_at` между шагами): его берёт следующая задача, а
+без неё — тик воркера (`pipeline_maintenance`, раз в час) возвращает такие
+ответы в `uploaded` и ставит `answer.process` заново. Скопированный Opus
+длиннее лимита STT-провайдера (25 МБ) перекодируется в моно 16 кГц
+(`media_meta.audio_copied = false`). Если срок хранения сработал, пока шла
+обработка, транскрипт сохраняется, а созданные файлы удаляются.
+
+`pipeline/ffmpeg.py` — async-обёртки `probe`, `extract_audio`, `remux` поверх
+`asyncio.create_subprocess_exec`: всегда `-hide_banner -loglevel error
+-threads 1`, таймаут `FFMPEG_TIMEOUT_S` (10 минут, процесс убивается), на
+POSIX — `nice -n 10`, результат пишется во временный файл и переименовывается
+атомарно (временное имя случайное, осиротевшие `.part` от убитого воркера
+убираются перед новым запуском). Ошибка → `PipelineError` с хвостом stderr, в
+котором пути внутри `MEDIA_ROOT` заменены на `<media>` — текст ошибки виден
+сотрудникам в карточке ответа. Настройки: `FFMPEG_BIN`, `FFPROBE_BIN`,
+`FFMPEG_TIMEOUT_S`, `RETENTION_PURGE_HOUR_UTC`, `PIPELINE_STALE_PROCESSING_S`.
+Пайплайн работает с локальным томом (`LocalStorage.path_for`), а читает,
+проверяет и удаляет файлы через абстракцию `Storage`.
+
+**Срок хранения.** Задача `retention.purge` (ресурс `default`) для каждой
+организации удаляет видео, аудио и ремукс ответов интервью, завершённых
+(`completed_at`; для отменённых — `cancelled_at`) раньше, чем
+`retention_days` организации; брошенные интервью (`in_progress`, `expired`)
+попадают под срок от истечения ссылки (`expires_at`). Ключи обнуляются, в
+`media_meta.purged_at` пишется время, транскрипты, метаданные и оценки не
+трогаются, каталог `interviews/<id>` удаляется целиком (вместе с осиротевшими
+временными файлами), каждое удаление попадает в лог. Ответы в `processing`
+пропускаются до следующего прогона. Расписание: воркер на старте ставит чистку
+на сегодня (`schedule_daily_purge`: ключ `retention:purge:<дата>`, не раньше
+`RETENTION_PURGE_HOUR_UTC`, одна задача в сутки), сама задача ставит
+следующую на завтра ещё до начала работы, а тик воркера раз в час проверяет,
+что задачи на сегодня и завтра существуют, — цепочка не рвётся, даже если
+чистка дня исчерпала попытки. Вручную, мимо очереди:
+`uv run python -m leonit.pipeline.purge [--dry-run]`.
+
+Тесты `tests/test_pipeline.py` и `tests/test_pipeline_resilience.py`
+генерируют файлы самим ffmpeg (`-f lavfi`, фикстура `samples` в conftest).
+Локально без ffmpeg/ffprobe они пропускаются; в CI (`CI=1`) ffmpeg обязателен —
+без него модуль падает на импорте, а не пропускает сценарии молча.
