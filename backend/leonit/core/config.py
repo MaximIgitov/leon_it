@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # брошенным (воркер убит без graceful stop) и берётся в обработку заново.
     PIPELINE_STALE_PROCESSING_S: int = Field(default=1800, ge=60)
 
+    # --- Huntflow -------------------------------------------------------------
+    HUNTFLOW_API_BASE: str = "https://api.huntflow.ru/v2"
+    # auto — реальный клиент при подключении по токену, фейковый при «Подключить
+    # демо»; fake — всегда фикстуры (стенд без ключей, CI); real — демо запрещено.
+    HUNTFLOW_MODE: Literal["auto", "fake", "real"] = "auto"
+    HUNTFLOW_TIMEOUT_S: float = Field(default=15, gt=0)
+
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
     # openai_compatible. Так CI и e2e работают без ключей и сети, а стенд с
