@@ -27,6 +27,7 @@ JOB_HANDLER_MODULES: tuple[str, ...] = (
     "leonit.evaluation.jobs",
     "leonit.pipeline.jobs",
     "leonit.hh.jobs",
+    "leonit.huntflow.jobs",
 )
 
 

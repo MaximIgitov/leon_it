@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     HH_OAUTH_BASE: str = "https://hh.ru"
     HH_USER_AGENT: str = "LeonIT/1.0 (info@napoleonit.ru)"
     HH_SYNC_INTERVAL_MINUTES: int = Field(default=10, ge=1, le=1440)
+    # --- Huntflow -------------------------------------------------------------
+    HUNTFLOW_API_BASE: str = "https://api.huntflow.ru/v2"
+    # auto — реальный клиент при подключении по токену, фейковый при «Подключить
+    # демо»; fake — всегда фикстуры (стенд без ключей, CI); real — демо запрещено.
+    HUNTFLOW_MODE: Literal["auto", "fake", "real"] = "auto"
+    HUNTFLOW_TIMEOUT_S: float = Field(default=15, gt=0)
 
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
