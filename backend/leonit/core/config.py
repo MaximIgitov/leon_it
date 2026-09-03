@@ -16,6 +16,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
 ModelProvider = Literal["openai_compatible", "fake"]
+# Задел: реальные провайдеры (HeyGen, D-ID, Piston, Judge0) добавляются в
+# реестры leonit.avatar / leonit.code_runner и в эти Literal.
+AvatarProvider = Literal["none"]
+CodeRunnerKind = Literal["none"]
 
 # Роли моделей: у каждой свой набор MODEL_<ROLE>_* переменных (см. leonit.ai.config).
 MODEL_ROLES: tuple[str, ...] = ("evaluator", "assistant", "interviewer", "stt", "tts")
@@ -147,6 +151,18 @@ class Settings(BaseSettings):
     # < NO_FIT — «не подходит», между ними — «нужна проверка».
     EVAL_FIT_THRESHOLD: float = 70
     EVAL_NO_FIT_THRESHOLD: float = 45
+
+    # --- ИИ-аватар и секция кода (задел, см. leonit.avatar и leonit.code_runner) ---
+    # Аватар показывается в комнате, только если флаг включён и провайдер не "none".
+    AVATAR_ENABLED: bool = False
+    AVATAR_PROVIDER: AvatarProvider = "none"
+    # Запуск кода кандидата: "none" — редактор работает, кнопка «Запустить» выключена.
+    CODE_RUNNER: CodeRunnerKind = "none"
+    CODE_RUNNER_TIMEOUT_S: float = Field(default=10.0, gt=0, le=120)
+    CODE_LANGUAGES: list[str] = Field(
+        default_factory=lambda: ["python", "javascript", "typescript", "go", "java", "sql"]
+    )
+    CODE_MAX_SOURCE_BYTES: int = Field(default=65536, ge=1024)
 
     @property
     def is_production(self) -> bool:

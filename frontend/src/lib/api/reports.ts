@@ -1,5 +1,6 @@
 import { apiFetch } from "./client";
 import type { Interview } from "./candidates";
+import type { CodeSubmission } from "./room";
 
 export type AnswerDetail = {
   id: string;
@@ -21,6 +22,7 @@ export type AnswerDetail = {
   question_text: string | null;
   question_id: string | null;
   parent_answer_id: string | null;
+  code_submission?: CodeSubmission | null;
 };
 
 export type InterviewEvent = {
@@ -161,6 +163,7 @@ export type PublicReport = {
     transcript_text: string | null;
     transcript_segments: { start_s: number; end_s: number; text: string }[] | null;
     status: string;
+    code_submission?: CodeSubmission | null;
   }[];
   notes: Note[];
   can_decide: boolean;

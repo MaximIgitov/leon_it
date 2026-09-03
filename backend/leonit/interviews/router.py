@@ -12,6 +12,7 @@ from leonit.core.deps import DbSession
 from leonit.core.errors import ValidationFailedError
 from leonit.core.storage import StorageOffsetConflict
 from leonit.core.time import aware
+from leonit.interviews.code import code_submission_out, report_transcript
 from leonit.interviews.models import Answer, InterviewEvent
 from leonit.interviews.schemas import (
     AnswerComplete,
@@ -19,6 +20,8 @@ from leonit.interviews.schemas import (
     AnswerCreated,
     AnswerDetail,
     AnswerOut,
+    CodeRunIn,
+    CodeSubmissionIn,
     EventsAccepted,
     EventsBatch,
     InterviewEventOut,
@@ -29,6 +32,7 @@ from leonit.interviews.schemas import (
 from leonit.interviews.service import (
     UPLOAD_CHUNK_MAX_BYTES,
     InterviewRoomService,
+    code_runner_out,
     public_question,
 )
 
@@ -54,6 +58,7 @@ def answer_out(answer: Answer) -> AnswerOut:
         duration_ms=answer.duration_ms,
         recording_started_at=aware(answer.recording_started_at),  # type: ignore[arg-type]
         recording_ended_at=aware(answer.recording_ended_at),
+        code_submission=code_submission_out(answer.code_submission),
     )
 
 
@@ -69,6 +74,7 @@ def _state(interview: Interview, answers: list[Answer], revealed) -> InterviewSt
         settings=interview.settings_snapshot or {},
         revealed_at=revealed,
         expires_at=aware(interview.expires_at),  # type: ignore[arg-type]
+        code_runner=code_runner_out(),
     )
 
 
@@ -96,14 +102,13 @@ async def reveal_question(
     token: str, index: int, session: DbSession, request: Request
 ) -> RevealOut:
     _limit(request)
-    question, revealed_at, audio_url, audio_type = await InterviewRoomService(session).reveal(
-        token, index
-    )
+    revealed = await InterviewRoomService(session).reveal(token, index)
     return RevealOut(
-        question=public_question(question),
-        revealed_at=aware(revealed_at),  # type: ignore[arg-type]
-        audio_url=audio_url,
-        audio_content_type=audio_type,
+        question=public_question(revealed.question),
+        revealed_at=aware(revealed.revealed_at),  # type: ignore[arg-type]
+        audio_url=revealed.audio_url,
+        audio_content_type=revealed.audio_content_type,
+        avatar=revealed.avatar,
     )
 
 
@@ -157,6 +162,27 @@ async def complete_answer(
     )
 
 
+@room_router.put("/answers/{question_id}/code", response_model=AnswerOut)
+async def save_code(
+    token: str, question_id: str, payload: CodeSubmissionIn, session: DbSession
+) -> AnswerOut:
+    """Черновик (``submit=false``) или отправка кода на текущий вопрос ``kind=code``.
+
+    Без общего лимитера, как и докачка чанков: автосохранение черновика шлёт
+    запросы чаще, чем кандидат нажимает кнопки; размер тела ограничен схемой.
+    """
+    return answer_out(await InterviewRoomService(session).save_code(token, question_id, payload))
+
+
+@room_router.post("/answers/{question_id}/code/run", response_model=AnswerOut)
+async def run_code(
+    token: str, question_id: str, payload: CodeRunIn, session: DbSession, request: Request
+) -> AnswerOut:
+    """Запустить код; при выключенном раннере — 409 с ``code=runner_disabled``."""
+    _limit(request)
+    return answer_out(await InterviewRoomService(session).run_code(token, question_id, payload))
+
+
 @room_router.post("/next", response_model=InterviewState)
 async def next_question(token: str, session: DbSession, request: Request) -> InterviewState:
     _limit(request)
@@ -189,7 +215,7 @@ async def interview_answers(
             media_url=service.media_url(answer),
             audio_url=service.audio_url(answer),
             media_content_type=answer.media_content_type,
-            transcript_text=answer.transcript_text,
+            transcript_text=report_transcript(answer),
             transcript_segments=answer.transcript_segments,
             processing_error=answer.processing_error,
             question_text=(snapshot.get(answer.question_index) or {}).get("text"),
