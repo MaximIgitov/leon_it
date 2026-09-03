@@ -9,6 +9,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
 import { PageHeader } from "@/components/layout/page-header";
 import { AnswerPlayer, type AnswerPlayerHandle } from "@/components/reports/answer-player";
+import { CodeSubmission } from "@/components/reports/code-submission";
 import { DecisionPanel } from "@/components/reports/decision-panel";
 import { EvaluationView, RecommendationBadge } from "@/components/reports/evaluation-view";
 import { NotesPanel } from "@/components/reports/notes-panel";
@@ -171,13 +172,17 @@ export default function InterviewReportPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AnswerPlayer
-                    ref={refFor(answer.id)}
-                    src={answer.media_url}
-                    contentType={answer.media_content_type}
-                    segments={answer.transcript_segments}
-                    transcript={answer.transcript_text}
-                  />
+                  {answer.code_submission ? <CodeSubmission submission={answer.code_submission} className="mb-4" /> : null}
+                  {/* Ответ только кодом: видео и транскрипта нет, плеер не нужен. */}
+                  {answer.code_submission && !answer.media_url ? null : (
+                    <AnswerPlayer
+                      ref={refFor(answer.id)}
+                      src={answer.media_url}
+                      contentType={answer.media_content_type}
+                      segments={answer.transcript_segments}
+                      transcript={answer.transcript_text}
+                    />
+                  )}
                   {answer.status === "failed" ? (
                     <p className="mt-2 text-xs text-destructive">Обработка не удалась: {answer.processing_error}</p>
                   ) : null}

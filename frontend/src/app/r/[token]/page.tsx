@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
 import { AnswerPlayer, type AnswerPlayerHandle } from "@/components/reports/answer-player";
+import { CodeSubmission } from "@/components/reports/code-submission";
 import { DecisionPanel } from "@/components/reports/decision-panel";
 import { EvaluationView, RecommendationBadge } from "@/components/reports/evaluation-view";
 import { NotesPanel } from "@/components/reports/notes-panel";
@@ -95,13 +96,16 @@ export default function SharedReportPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <AnswerPlayer
-                        ref={refFor(answer.id)}
-                        src={answer.media_url}
-                        contentType={answer.media_content_type}
-                        segments={answer.transcript_segments}
-                        transcript={answer.transcript_text}
-                      />
+                      {answer.code_submission ? <CodeSubmission submission={answer.code_submission} className="mb-4" /> : null}
+                      {answer.code_submission && !answer.media_url ? null : (
+                        <AnswerPlayer
+                          ref={refFor(answer.id)}
+                          src={answer.media_url}
+                          contentType={answer.media_content_type}
+                          segments={answer.transcript_segments}
+                          transcript={answer.transcript_text}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 ))}

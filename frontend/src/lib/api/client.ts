@@ -15,13 +15,16 @@ export class ApiError extends Error {
   readonly status: number;
   readonly requestId: string | null;
   readonly detail: unknown;
+  /** Машиночитаемый код ошибки от бэкенда (например, `runner_disabled`). */
+  readonly code: string | null;
 
-  constructor(status: number, detail: unknown, requestId: string | null) {
+  constructor(status: number, detail: unknown, requestId: string | null, code: string | null = null) {
     super(typeof detail === "string" ? detail : `Ошибка запроса (${status})`);
     this.name = "ApiError";
     this.status = status;
     this.requestId = requestId;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -72,13 +75,15 @@ export async function apiFetch<T = unknown>(
 
   if (!response.ok) {
     let detail: unknown = response.statusText;
+    let code: string | null = null;
     try {
       const payload = await response.json();
       detail = payload?.detail ?? payload;
+      if (typeof payload?.code === "string") code = payload.code;
     } catch {
       /* тело не JSON */
     }
-    throw new ApiError(response.status, detail, response.headers.get("x-request-id"));
+    throw new ApiError(response.status, detail, response.headers.get("x-request-id"), code);
   }
   if (raw) return response as unknown as T;
   if (response.status === 204) return undefined as T;
