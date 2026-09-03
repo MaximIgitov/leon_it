@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
+import { HuntflowPush } from "@/components/integrations/huntflow-push";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { candidatesApi, type Candidate, type Interview } from "@/lib/api/candidates";
@@ -36,7 +37,7 @@ export default function CandidatePage() {
 
   return (
     <>
-      <PageHeader title={candidate.full_name} description={candidate.email} />
+      <PageHeader title={candidate.full_name} description={candidate.email} actions={<HuntflowPush candidateId={candidate.id} />} />
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card>
           <CardHeader>
