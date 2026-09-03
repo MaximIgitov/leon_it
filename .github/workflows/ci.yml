@@ -25,6 +25,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - name: Установить зависимости
         run: uv sync --frozen
       - name: Линт
@@ -61,6 +63,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - name: Установить зависимости
         run: uv sync --frozen
       - name: Миграции на чистой базе
@@ -93,3 +97,53 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+
+  e2e:
+    # Сквозной сценарий кандидата с фейковой камерой. Только на main и не
+    # блокирует PR: цель — регрессия и запись демо, а не ворота слияния.
+    name: E2E (кандидат)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Зависимости бэкенда
+        working-directory: backend
+        run: uv sync --frozen
+      - name: Сборка фронтенда
+        working-directory: frontend
+        run: npm ci && npm run build
+        env:
+          NEXT_PUBLIC_BACKEND_API_URL: http://localhost:8000/api
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Сквозной сценарий
+        working-directory: e2e
+        run: npm test
+        env:
+          E2E_FRONTEND_START: "1"
+          UV_BIN: uv
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
