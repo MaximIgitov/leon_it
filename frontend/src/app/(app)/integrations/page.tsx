@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, KeyRound, Loader2, Plus } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, BookOpen, KeyRound, Loader2, Plus } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { CopyField } from "@/components/candidates/invite-dialog";
@@ -402,13 +403,22 @@ function QuickStartCard() {
   );
 }
 
-function ComingSoon({ title, text }: { title: string; text: string }) {
+/** Интеграции с внешними системами живут на своих подстраницах; здесь — только вход. */
+function SeparatePageCard({ title, text, href }: { title: string; text: string; href: string }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{text}</CardDescription>
       </CardHeader>
+      <CardContent>
+        <Button asChild variant="outline">
+          <Link href={href}>
+            Настраивается на отдельной странице
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
+      </CardContent>
     </Card>
   );
 }
@@ -421,7 +431,7 @@ export default function IntegrationsPage() {
     <>
       <PageHeader
         title="Интеграции"
-        description="Публичный API для ATS и скриптов, дальше — HH.ru и Huntflow."
+        description="Публичный API для ATS и скриптов, подключение HH.ru и Huntflow."
         actions={<DocsLink />}
       />
       <Tabs defaultValue="api">
@@ -447,15 +457,17 @@ export default function IntegrationsPage() {
           <QuickStartCard />
         </TabsContent>
         <TabsContent value="hh" className="mt-4">
-          <ComingSoon
+          <SeparatePageCard
             title="HH.ru"
-            text="Импорт вакансий и откликов, диалог с кандидатом в чате HH и ссылка на интервью — следующий шаг плана."
+            text="Импорт вакансий и откликов, диалог с кандидатом в чате HH и ссылка на интервью."
+            href="/integrations/hh"
           />
         </TabsContent>
         <TabsContent value="huntflow" className="mt-4">
-          <ComingSoon
+          <SeparatePageCard
             title="Huntflow"
-            text="Передача кандидата и ссылки на отчёт в Huntflow появится после HH.ru. Уже сейчас это можно сделать через публичный API."
+            text="Передача кандидата и ссылки на отчёт в Huntflow. Уже сейчас это можно сделать через публичный API."
+            href="/integrations/huntflow"
           />
         </TabsContent>
       </Tabs>
