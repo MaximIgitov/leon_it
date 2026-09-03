@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from leonit.ai.gateway import shutdown_gateway
 from leonit.core.config import get_settings
 from leonit.core.db import dispose_engine
 from leonit.core.errors import install_error_handlers
@@ -20,8 +21,9 @@ from leonit.core.logging import setup_logging
 from leonit.core.observability import RequestContextMiddleware
 from leonit.core.security_headers import SecurityHeadersMiddleware
 from leonit.health.router import router as health_router
+from leonit.media.router import router as media_router
 
-ROUTERS: list[APIRouter] = [health_router]
+ROUTERS: list[APIRouter] = [health_router, media_router]
 
 
 @asynccontextmanager
@@ -30,6 +32,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await shutdown_gateway()
         await dispose_engine()
 
 
