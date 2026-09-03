@@ -55,6 +55,10 @@ from leonit.evaluation.schemas import (
 )
 from leonit.evaluation.scoring import ScoringResult, Thresholds, score_output
 from leonit.interviews.models import Answer, AnswerStatus
+from leonit.notifications.outreach import (
+    notify_evaluation_ready,
+    schedule_candidate_feedback,
+)
 from leonit.vacancies.models import CandidateFeedbackMode, Vacancy
 
 log = get_logger(__name__)
@@ -486,6 +490,22 @@ async def evaluate_interview(
     evaluation.evaluated_at = utcnow()
     transition(interview, InterviewStatus.evaluated)
     await session.commit()
+
+    # Письма — после коммита заключения: сбой рассылки не должен отменять оценку.
+    try:
+        await notify_evaluation_ready(
+            session,
+            interview,
+            fit_score=result.fit_score,
+            recommendation=result.recommendation,
+        )
+        await schedule_candidate_feedback(
+            session, interview, decided=interview.decision is not None
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        log.exception("evaluation.notify interview=%s failed", interview_id)
     log.info(
         "evaluation.done interview=%s fit=%s recommendation=%s reasons=%s "
         "redactions=%s quotes=%s/%s",

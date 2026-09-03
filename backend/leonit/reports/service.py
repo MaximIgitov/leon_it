@@ -15,14 +15,18 @@ from leonit.candidates.service import InterviewService, transition
 from leonit.core.authz import Actor, authorize
 from leonit.core.config import get_settings
 from leonit.core.errors import ConflictError, NotFoundError, PermissionDeniedError
+from leonit.core.logging import get_logger
 from leonit.core.time import aware, utcnow
 from leonit.evaluation.models import Evaluation
 from leonit.interviews.code import code_submission_out, report_transcript
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.interviews.service import InterviewRoomService
+from leonit.notifications.outreach import schedule_candidate_feedback
 from leonit.reports.models import ReportShare, ReportView, ReviewNote
 from leonit.reports.schemas import DecisionIn, NoteIn, ShareCreate
 from leonit.vacancies.models import Vacancy
+
+log = get_logger(__name__)
 
 DECIDABLE = frozenset(
     {
@@ -78,6 +82,14 @@ class ReportService:
             else:
                 transition(interview, target)
         await self.session.commit()
+        # Обратная связь кандидату по настройке «после решения» ставится здесь:
+        # раньше решения её слать нельзя, а сбой планирования не отменяет решение.
+        try:
+            await schedule_candidate_feedback(self.session, interview, decided=True)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            log.exception("decision.feedback interview=%s failed", interview.id)
         return await InterviewService(self.session).get(actor, interview.id)
 
     # ----------------------------------------------------------------- notes
