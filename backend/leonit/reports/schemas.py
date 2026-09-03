@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from leonit.interviews.schemas import CodeSubmissionOut
+
 Decision = Literal["advance", "reject", "hold"]
 
 
@@ -68,6 +70,7 @@ class PublicReportAnswer(BaseModel):
     transcript_text: str | None
     transcript_segments: list[dict[str, Any]] | None
     status: str
+    code_submission: CodeSubmissionOut | None = None
 
 
 class PublicReport(BaseModel):

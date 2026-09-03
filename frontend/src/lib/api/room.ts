@@ -13,6 +13,35 @@ export type SnapshotQuestion = {
 
 export type AnswerStatus = "recording" | "uploaded" | "processing" | "done" | "failed" | "abandoned";
 
+export type CodeRunResult = {
+  status: "ok" | "error" | "timeout";
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  duration_ms: number;
+  ran_at: string | null;
+};
+
+/** Секция кода в ответе: черновик до `submitted_at`, после — отправленное решение. */
+export type CodeSubmission = {
+  language: string;
+  source: string;
+  submitted_at: string | null;
+  run_result: CodeRunResult | null;
+};
+
+export type CodeRunnerInfo = {
+  enabled: boolean;
+  languages: string[];
+  max_source_bytes: number;
+};
+
+export type AvatarInfo = {
+  enabled: boolean;
+  clip_url: string | null;
+  duration_s: number | null;
+};
+
 export type RoomAnswer = {
   id: string;
   question_index: number;
@@ -24,6 +53,7 @@ export type RoomAnswer = {
   duration_ms: number | null;
   recording_started_at: string;
   recording_ended_at: string | null;
+  code_submission?: CodeSubmission | null;
 };
 
 export type InterviewState = {
@@ -41,6 +71,7 @@ export type InterviewState = {
   };
   revealed_at: Record<string, string>;
   expires_at: string;
+  code_runner: CodeRunnerInfo;
 };
 
 export type RevealResult = {
@@ -48,7 +79,11 @@ export type RevealResult = {
   revealed_at: string;
   audio_url: string | null;
   audio_content_type: string | null;
+  avatar: AvatarInfo;
 };
+
+export type CodeDraftBody = { language: string; source: string; submit?: boolean };
+export type CodeRunBody = { language: string; source: string; stdin?: string };
 
 export type ClientEvent = {
   kind: string;
@@ -86,6 +121,18 @@ export const roomApi = {
       token: null,
     }),
   next: (token: string) => apiFetch<InterviewState>(`${base(token)}/next`, { method: "POST", token: null }),
+  saveCode: (token: string, questionId: string, body: CodeDraftBody) =>
+    apiFetch<RoomAnswer>(`${base(token)}/answers/${encodeURIComponent(questionId)}/code`, {
+      method: "PUT",
+      body,
+      token: null,
+    }),
+  runCode: (token: string, questionId: string, body: CodeRunBody) =>
+    apiFetch<RoomAnswer>(`${base(token)}/answers/${encodeURIComponent(questionId)}/code/run`, {
+      method: "POST",
+      body,
+      token: null,
+    }),
   events: (token: string, events: ClientEvent[]) =>
     apiFetch<{ accepted: number; ignored: number }>(`${base(token)}/events`, {
       method: "POST",

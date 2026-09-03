@@ -52,6 +52,52 @@ class SnapshotQuestion(BaseModel):
     allows_followup: bool
 
 
+class CodeRunResultOut(BaseModel):
+    status: Literal["ok", "error", "timeout"]
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    duration_ms: int = 0
+    ran_at: datetime | None = None
+
+
+class CodeSubmissionOut(BaseModel):
+    language: str
+    source: str
+    submitted_at: datetime | None
+    run_result: CodeRunResultOut | None = None
+
+
+class CodeSubmissionIn(BaseModel):
+    """Черновик или отправка кода; размер проверяется сервисом (413 при превышении)."""
+
+    language: str = Field(min_length=1, max_length=32)
+    source: str = Field(default="", max_length=4_000_000)
+    submit: bool = False
+
+
+class CodeRunIn(BaseModel):
+    language: str = Field(min_length=1, max_length=32)
+    source: str = Field(default="", max_length=4_000_000)
+    stdin: str = Field(default="", max_length=10_000)
+
+
+class CodeRunnerOut(BaseModel):
+    """Что умеет секция кода на этом стенде: клиент показывает кнопку «Запустить»."""
+
+    enabled: bool
+    languages: list[str]
+    max_source_bytes: int
+
+
+class AvatarOut(BaseModel):
+    """Аватар интервьюера: enabled=false — комната показывает персону LeonIT."""
+
+    enabled: bool = False
+    clip_url: str | None = None
+    duration_s: float | None = None
+
+
 class AnswerOut(BaseModel):
     id: str
     question_index: int
@@ -63,6 +109,7 @@ class AnswerOut(BaseModel):
     duration_ms: int | None
     recording_started_at: datetime
     recording_ended_at: datetime | None
+    code_submission: CodeSubmissionOut | None = None
 
 
 class InterviewState(BaseModel):
@@ -76,6 +123,7 @@ class InterviewState(BaseModel):
     revealed_at: dict[int, datetime] = Field(default_factory=dict)
     # Пауза до дедлайна ссылки: клиент показывает её на вводном экране.
     expires_at: datetime
+    code_runner: CodeRunnerOut
 
 
 class RevealOut(BaseModel):
@@ -84,6 +132,7 @@ class RevealOut(BaseModel):
     # Подписанная ссылка на озвучку (None — озвучка выключена или недоступна).
     audio_url: str | None
     audio_content_type: str | None
+    avatar: AvatarOut = Field(default_factory=AvatarOut)
 
 
 class AnswerCreate(BaseModel):

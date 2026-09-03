@@ -90,6 +90,9 @@ class Answer(TimestampMixin, Base):
     media_meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     processing_error: Mapped[str | None] = mapped_column(Text)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Секция кода: {language, source, submitted_at, run_result} (см. interviews.code).
+    # Ответ на вопрос kind=code может быть и без видео — тогда media_key пуст.
+    code_submission: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class InterviewEvent(Base):
