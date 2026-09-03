@@ -119,7 +119,9 @@ class EventsAccepted(BaseModel):
 
 
 class AnswerDetail(AnswerOut):
+    # Видео для плеера (ремукс с перемоткой, если он есть) и извлечённое аудио.
     media_url: str | None
+    audio_url: str | None = None
     media_content_type: str | None
     transcript_text: str | None
     transcript_segments: list[dict[str, Any]] | None

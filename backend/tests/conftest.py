@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -101,3 +103,45 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
+
+
+# --- Медиа-файлы для тестов пайплайна ---------------------------------------
+# Генерирует сам ffmpeg (lavfi), поэтому бинарных фикстур в репозитории нет;
+# без ffmpeg/ffprobe в PATH зависимые тесты пропускаются (в CI ffmpeg обязателен,
+# см. tests/test_pipeline.py).
+
+
+def _generate_sample(path: Path, *codec_args: str) -> Path:
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=duration=2:size=320x240:rate=10",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=2",
+        *codec_args,
+        "-shortest",
+        str(path),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return path
+
+
+@pytest.fixture(scope="session")
+def samples(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        pytest.skip("ffmpeg/ffprobe не найдены в PATH")
+    root = tmp_path_factory.mktemp("samples")
+    return {
+        "webm": _generate_sample(root / "sample.webm", "-c:v", "libvpx", "-c:a", "libopus"),
+        # Стерео AAC: проверяем, что извлечение сводит в моно.
+        "mp4": _generate_sample(root / "sample.mp4", "-ac", "2", "-c:v", "libx264", "-c:a", "aac"),
+    }

@@ -36,15 +36,27 @@ function EvidenceList({
           <button
             type="button"
             onClick={() => onSeek?.(item.answer_id, item.start_s)}
-            className="flex w-full items-start gap-2 rounded-md p-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            title="Перейти к этому месту в видео"
+            className={cn(
+              "flex w-full items-start gap-2 rounded-md p-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              item.verified === false && "opacity-70",
+            )}
+            title={
+              item.verified === false
+                ? "Цитата не найдена в транскрипте дословно — проверьте по видео"
+                : "Перейти к этому месту в видео"
+            }
           >
-            <Quote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {item.verified === false ? (
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Не подтверждено" />
+            ) : (
+              <Quote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            )}
             <span>
               «{item.quote}»
               <span className="ml-1 text-xs opacity-70">
                 вопр. {item.question_index + 1}
                 {item.start_s !== null ? ` · ${Math.floor(item.start_s / 60)}:${String(Math.floor(item.start_s % 60)).padStart(2, "0")}` : ""}
+                {item.verified === false ? " · не подтверждено" : ""}
               </span>
             </span>
           </button>
@@ -64,6 +76,16 @@ function ScoreDots({ score }: { score: number }) {
   );
 }
 
+/** Сколько цитат заключения сервер подтвердил по транскрипту. */
+export function quoteStats(output: EvaluationOutput): { found: number; total: number } {
+  const all: Evidence[] = [
+    ...(output.competency_scores ?? []).flatMap((item) => item.evidence ?? []),
+    ...(output.question_assessments ?? []).flatMap((item) => item.evidence ?? []),
+    ...(output.skills ?? []).flatMap((item) => item.evidence ?? []),
+  ];
+  return { total: all.length, found: all.filter((item) => item.verified !== false).length };
+}
+
 export function EvaluationView({
   output,
   onSeek,
@@ -71,6 +93,7 @@ export function EvaluationView({
   output: EvaluationOutput;
   onSeek?: (answerId: string, seconds: number | null) => void;
 }) {
+  const quotes = quoteStats(output);
   return (
     <div className="space-y-4">
       <Card>
@@ -84,7 +107,16 @@ export function EvaluationView({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {output.transcript_quality_note}
             </p>
           ) : null}
-          <p className="text-xs text-muted-foreground">Уверенность модели: {Math.round(output.confidence * 100)}%</p>
+          <p className="text-xs text-muted-foreground">
+            Уверенность модели: {Math.round(output.confidence * 100)}%
+            {quotes.total > 0 ? ` · цитаты подтверждены по транскрипту: ${quotes.found} из ${quotes.total}` : ""}
+          </p>
+          {quotes.total > 0 && quotes.found < quotes.total ? (
+            <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Часть цитат не найдена в транскрипте дословно — они помечены и требуют проверки по видео.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

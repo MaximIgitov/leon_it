@@ -28,11 +28,17 @@ def test_explicit_provider_wins_over_autodetection() -> None:
 
 def test_production_rejects_fake_provider_unless_allowed() -> None:
     with pytest.raises(ValueError, match="MODEL_PROVIDER=fake"):
-        _settings(ENVIRONMENT="production", JWT_SECRET="x" * 40, CORS_ORIGINS=["https://a.b"])
+        _settings(
+            ENVIRONMENT="production",
+            JWT_SECRET="x" * 40,
+            CORS_ORIGINS=["https://a.b"],
+            DATA_ENCRYPTION_KEY="k",
+        )
     settings = _settings(
         ENVIRONMENT="production",
         JWT_SECRET="x" * 40,
         CORS_ORIGINS=["https://a.b"],
+        DATA_ENCRYPTION_KEY="k",
         MODEL_ALLOW_FAKE_IN_PRODUCTION=True,
     )
     assert settings.effective_model_provider == "fake"
