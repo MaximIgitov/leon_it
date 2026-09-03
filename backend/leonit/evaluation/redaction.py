@@ -133,3 +133,23 @@ def redact_text(
     """Одноразовая замена: вернуть текст и словарь «исходное → плейсхолдер»."""
     redactor = Redactor(full_name=full_name, email=email, phone=phone)
     return redactor.redact(text), dict(redactor.replacements)
+
+
+def redact_phones(text: str | None, *, known: str | None = None) -> str:
+    """Только телефоны: для контекстов, где имя и e-mail нужны, а номер — нет.
+
+    Ассистент отвечает про конкретных кандидатов, поэтому имена в его данных
+    остаются, а вот номер телефона модели ни к чему — известный номер кандидата
+    и всё похожее на телефон заменяется плейсхолдером.
+    """
+    if not text:
+        return text or ""
+    result = text
+    rules: list[re.Pattern[str]] = []
+    known_phone = _phone_pattern(known)
+    if known_phone is not None:
+        rules.append(known_phone)
+    rules.extend((_PHONE_RE, _INTL_PHONE_RE))
+    for pattern in rules:
+        result = pattern.sub(PLACEHOLDER_PHONE, result)
+    return result

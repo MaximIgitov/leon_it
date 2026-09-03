@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from leonit.accounts.router import auth_router, invites_router, organization_router
 from leonit.ai.gateway import shutdown_gateway
 from leonit.api_tokens.router import router as api_tokens_router
+from leonit.assistant.router import router as assistant_router
 from leonit.candidates.router import candidates_router, interviews_router, public_router
 from leonit.core.config import get_settings
 from leonit.core.db import dispose_engine
@@ -54,6 +55,7 @@ ROUTERS: list[APIRouter] = [
     reports_router,
     public_reports_router,
     emails_router,
+    assistant_router,
     api_tokens_router,
     public_api_router,
     api_docs_router,
