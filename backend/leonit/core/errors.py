@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 
 class DomainError(Exception):
     status_code = status.HTTP_400_BAD_REQUEST
+    # Машиночитаемый код для клиента (например, ``runner_disabled``); None — только detail.
+    code: str | None = None
 
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
@@ -47,4 +49,7 @@ class UpstreamError(DomainError):
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain_error(_request: Request, error: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+        content: dict[str, str] = {"detail": error.detail}
+        if error.code:
+            content["code"] = error.code
+        return JSONResponse(status_code=error.status_code, content=content)

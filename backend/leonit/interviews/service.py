@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -13,19 +14,26 @@ from leonit.accounts.models import Organization, User
 from leonit.ai.gateway import get_tts
 from leonit.ai.providers.base import ProviderError
 from leonit.ai.tts_cache import get_or_synthesize
+from leonit.avatar import get_avatar_provider, get_or_render
 from leonit.candidates.models import Interview, InterviewStatus
 from leonit.candidates.service import InterviewService, transition
+from leonit.code_runner import RunnerDisabled, get_code_runner
 from leonit.core.authz import Actor, authorize
 from leonit.core.config import get_settings
 from leonit.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from leonit.core.logging import get_logger
 from leonit.core.storage import get_storage
 from leonit.core.time import aware, utcnow
+from leonit.interviews.code import is_submitted, validate_code
 from leonit.interviews.models import Answer, AnswerStatus, InterviewEvent
 from leonit.interviews.schemas import (
     EVENT_KINDS,
     AnswerComplete,
+    AvatarOut,
     ClientEvent,
+    CodeRunIn,
+    CodeRunnerOut,
+    CodeSubmissionIn,
     SnapshotQuestion,
 )
 from leonit.jobs import service as jobs
@@ -102,6 +110,25 @@ def public_question(item: dict[str, Any]) -> SnapshotQuestion:
         retakes_allowed=item["retakes_allowed"],
         allows_followup=item["allows_followup"],
     )
+
+
+def code_runner_out() -> CodeRunnerOut:
+    """Возможности секции кода на стенде — клиент решает, показывать ли «Запустить»."""
+    settings = get_settings()
+    return CodeRunnerOut(
+        enabled=get_code_runner(settings).enabled,
+        languages=list(settings.CODE_LANGUAGES),
+        max_source_bytes=settings.CODE_MAX_SOURCE_BYTES,
+    )
+
+
+@dataclass(slots=True)
+class Revealed:
+    question: dict[str, Any]
+    revealed_at: datetime
+    audio_url: str | None
+    audio_content_type: str | None
+    avatar: AvatarOut
 
 
 class InterviewRoomService:
@@ -201,10 +228,43 @@ class InterviewRoomService:
         revealed = await self._revealed_at(interview.id)
         return interview, answers, revealed
 
-    async def reveal(
-        self, token: str, index: int
-    ) -> tuple[dict[str, Any], datetime, str | None, str | None]:
-        interview, _, _ = await self._load(token)
+    def _question_by_id(self, interview: Interview, question_id: str) -> dict[str, Any]:
+        """Текущий вопрос по id из снимка: код принимается только на него."""
+        snapshot = interview.question_snapshot or []
+        match = next((item for item in snapshot if item["id"] == question_id), None)
+        if match is None:
+            raise NotFoundError("Такого вопроса нет")
+        question = self._question(interview, match["index"])
+        if question["index"] != interview.current_question_index:
+            raise ConflictError("Отвечать можно только на текущий вопрос")
+        return question
+
+    async def _avatar(
+        self, question: dict[str, Any], voice: str | None, language: str
+    ) -> AvatarOut:
+        """Клип аватара с вопросом; любая ошибка — персона без видео, интервью идёт."""
+        settings = get_settings()
+        if not settings.AVATAR_ENABLED:
+            return AvatarOut(enabled=False)
+        provider = get_avatar_provider(settings)
+        if not provider.enabled:
+            return AvatarOut(enabled=False)
+        try:
+            clip = await get_or_render(self.storage, provider, question["text"], voice, language)
+        except Exception as error:  # аватар — украшение, не причина остановить интервью
+            log.warning("avatar.unavailable provider=%s error=%s", provider.name, error)
+            return AvatarOut(enabled=True)
+        if clip is None:
+            return AvatarOut(enabled=True)
+        url = (
+            sign_media_url(clip.storage_key, ttl_s=1800, content_type="video/mp4")
+            if clip.storage_key
+            else clip.url
+        )
+        return AvatarOut(enabled=True, clip_url=url, duration_s=clip.duration_s)
+
+    async def reveal(self, token: str, index: int) -> Revealed:
+        interview, vacancy, _ = await self._load(token)
         self._require_in_progress(interview)
         question = self._question(interview, index)
         revealed = await self._revealed_at(interview.id)
@@ -227,8 +287,9 @@ class InterviewRoomService:
             except ProviderError as error:
                 # Без озвучки интервью продолжается: текст вопроса на экране всегда.
                 log.warning("tts.unavailable interview=%s error=%s", interview.id, error)
+        avatar = await self._avatar(question, settings.get("voice"), vacancy.language)
         await self.session.commit()
-        return question, revealed_at, audio_url, audio_type
+        return Revealed(question, revealed_at, audio_url, audio_type, avatar)
 
     async def create_answer(self, token: str, index: int, mime_type: str) -> Answer:
         interview, _, _ = await self._load(token)
@@ -237,25 +298,40 @@ class InterviewRoomService:
         if index != interview.current_question_index:
             raise ConflictError("Отвечать можно только на текущий вопрос")
         answers = [a for a in await self._answers(interview.id) if a.question_index == index]
+        # Видео-пояснение к коду пишется в ту же попытку, где лежит код.
+        reusable = self._code_only_answer(question, answers)
         # Незавершённая запись (обрыв связи) считается брошенной, новая — следующая попытка.
         for answer in answers:
-            if answer.status == AnswerStatus.recording:
+            if answer.status == AnswerStatus.recording and answer is not reusable:
                 answer.status = AnswerStatus.abandoned
                 answer.is_final = False
-        attempts_used = len(answers)
-        if attempts_used > question["retakes_allowed"]:
-            raise ConflictError("Лимит перезаписей исчерпан")
-        attempt = attempts_used + 1
-        answer = Answer(
-            interview_id=interview.id,
-            question_index=index,
-            question_id=question["id"],
-            attempt=attempt,
-            status=AnswerStatus.recording,
-            media_content_type=mime_type.split(";", 1)[0].strip().lower(),
-        )
-        self.session.add(answer)
-        await self.session.flush()
+        content_type = mime_type.split(";", 1)[0].strip().lower()
+        if reusable is not None:
+            answer = reusable
+            attempt = answer.attempt
+            answer.status = AnswerStatus.recording
+            answer.media_content_type = content_type
+            answer.recording_started_at = utcnow()
+            answer.recording_ended_at = None
+            answer.duration_ms = None
+            answer.processed_at = None
+        else:
+            attempts_used = len(answers)
+            if attempts_used > question["retakes_allowed"]:
+                raise ConflictError("Лимит перезаписей исчерпан")
+            attempt = attempts_used + 1
+            answer = Answer(
+                interview_id=interview.id,
+                question_index=index,
+                question_id=question["id"],
+                attempt=attempt,
+                status=AnswerStatus.recording,
+                media_content_type=content_type,
+                # Новая попытка пояснения не теряет уже написанный код.
+                code_submission=self._latest_code(answers),
+            )
+            self.session.add(answer)
+            await self.session.flush()
         answer.media_key = (
             f"interviews/{interview.id}/q{index:02d}-a{attempt}-{answer.id}.{_extension(mime_type)}"
         )
@@ -353,18 +429,145 @@ class InterviewRoomService:
         await self.session.commit()
         return answer
 
+    # ---------------------------------------------------------- code section
+
+    @staticmethod
+    def _code_only_answer(question: dict[str, Any], answers: list[Answer]) -> Answer | None:
+        """Попытка с кодом без видео (черновик или отправленный код) — к ней крепится пояснение."""
+        if question["kind"] != "code":
+            return None
+        candidates = [
+            a
+            for a in answers
+            if a.code_submission
+            and a.media_key is None
+            and a.status in (AnswerStatus.recording, AnswerStatus.done)
+        ]
+        return max(candidates, key=lambda a: a.attempt) if candidates else None
+
+    @staticmethod
+    def _latest_code(answers: list[Answer]) -> dict[str, Any] | None:
+        with_code = [a for a in answers if a.code_submission]
+        if not with_code:
+            return None
+        return dict(max(with_code, key=lambda a: a.attempt).code_submission or {})
+
+    async def _code_answer(self, interview: Interview, question: dict[str, Any]) -> Answer:
+        """Попытка, в которую пишется код: последняя не брошенная, иначе новая."""
+        index = question["index"]
+        rows = [a for a in await self._answers(interview.id) if a.question_index == index]
+        active = [a for a in rows if a.status != AnswerStatus.abandoned]
+        if active:
+            return max(active, key=lambda a: a.attempt)
+        answer = Answer(
+            interview_id=interview.id,
+            question_index=index,
+            question_id=question["id"],
+            attempt=len(rows) + 1,
+            status=AnswerStatus.recording,
+        )
+        self.session.add(answer)
+        await self.session.flush()
+        return answer
+
+    async def _put_code(
+        self, interview: Interview, question: dict[str, Any], language: str, source: str
+    ) -> Answer:
+        answer = await self._code_answer(interview, question)
+        current = answer.code_submission or {}
+        answer.code_submission = {
+            "language": language,
+            "source": source,
+            "submitted_at": current.get("submitted_at"),
+            # Результат запуска относится к конкретному тексту: изменился — устарел.
+            "run_result": current.get("run_result") if current.get("source") == source else None,
+        }
+        return answer
+
+    async def save_code(self, token: str, question_id: str, payload: CodeSubmissionIn) -> Answer:
+        interview, _, _ = await self._load(token)
+        self._require_in_progress(interview)
+        question = self._question_by_id(interview, question_id)
+        if question["kind"] != "code":
+            raise ConflictError("Код можно отправить только на вопрос с секцией кода")
+        language = validate_code(payload.language, payload.source, get_settings())
+        if payload.submit and not payload.source.strip():
+            raise ValidationFailedError("Пустой код отправить нельзя")
+        answer = await self._put_code(interview, question, language, payload.source)
+        if payload.submit:
+            now = utcnow()
+            answer.code_submission = {
+                **(answer.code_submission or {}),
+                "submitted_at": now.isoformat(),
+            }
+            if answer.media_key is None:
+                # Без видео-пояснения отправка кода и есть завершение ответа: ни
+                # загрузки, ни пайплайна — сразу done, попытка становится зачётной.
+                answer.status = AnswerStatus.done
+                answer.recording_ended_at = now
+                answer.processed_at = now
+                started = aware(answer.recording_started_at)
+                answer.duration_ms = (
+                    int((now - started).total_seconds() * 1000) if started else None
+                )
+                for other in await self._answers(interview.id):
+                    if other.question_index == question["index"] and other.id != answer.id:
+                        other.is_final = False
+                answer.is_final = True
+            self._event(
+                interview,
+                "code_submitted",
+                question_index=question["index"],
+                answer_id=answer.id,
+                payload={"language": language, "bytes": len(payload.source.encode("utf-8"))},
+            )
+        await self.session.commit()
+        return answer
+
+    async def run_code(self, token: str, question_id: str, payload: CodeRunIn) -> Answer:
+        interview, _, _ = await self._load(token)
+        self._require_in_progress(interview)
+        question = self._question_by_id(interview, question_id)
+        if question["kind"] != "code":
+            raise ConflictError("Запускать код можно только на вопросе с секцией кода")
+        settings = get_settings()
+        language = validate_code(payload.language, payload.source, settings)
+        runner = get_code_runner(settings)
+        if not runner.enabled:
+            raise RunnerDisabled()
+        answer = await self._put_code(interview, question, language, payload.source)
+        result = await runner.run(
+            language, payload.source, stdin=payload.stdin, timeout_s=settings.CODE_RUNNER_TIMEOUT_S
+        )
+        answer.code_submission = {
+            **(answer.code_submission or {}),
+            "run_result": {**result.to_dict(), "ran_at": utcnow().isoformat()},
+        }
+        self._event(
+            interview,
+            "code_run",
+            question_index=question["index"],
+            answer_id=answer.id,
+            payload={"language": language, "status": result.status, "runner": runner.name},
+        )
+        await self.session.commit()
+        return answer
+
     async def next_question(self, token: str) -> Interview:
         interview, vacancy, organization = await self._load(token)
         self._require_in_progress(interview)
         index = interview.current_question_index
-        answers = [
+        question = self._question(interview, index)
+        rows = [
             a
             for a in await self._answers(interview.id)
-            if a.question_index == index
-            and a.status != AnswerStatus.recording
-            and a.status != AnswerStatus.abandoned
+            if a.question_index == index and a.status != AnswerStatus.abandoned
         ]
-        if not answers:
+        if question["kind"] == "code":
+            # Ответ на вопрос с кодом дан, когда код отправлен; пояснение опционально.
+            if not any(is_submitted(a) for a in rows):
+                raise ConflictError("Сначала отправьте код")
+        elif not any(a.status != AnswerStatus.recording for a in rows):
             raise ConflictError("Сначала запишите ответ на текущий вопрос")
         total = len(interview.question_snapshot or [])
         if index + 1 < total:

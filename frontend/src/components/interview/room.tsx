@@ -1,17 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, Loader2, Mic, RotateCcw, Square, Volume2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Mic, RotateCcw, Square, Video } from "lucide-react";
 
+import { AvatarStage } from "@/components/interview/avatar-stage";
+import { CodeEditor, clearDraft, draftStorageKey, type CodeDraft } from "@/components/interview/code-editor";
+import { CodeSubmission } from "@/components/reports/code-submission";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useInterviewTelemetry } from "@/hooks/use-interview-telemetry";
 import { ApiError, API_BASE_URL } from "@/lib/api/client";
-import { roomApi, type InterviewState, type SnapshotQuestion } from "@/lib/api/room";
+import { roomApi, type AvatarInfo, type InterviewState, type RoomAnswer, type SnapshotQuestion } from "@/lib/api/room";
 import { AnswerRecorder, type UploadProgress } from "@/lib/media/recorder";
 import type { DeviceCheckResult } from "@/components/interview/device-check";
 
-type Phase = "loading" | "intro" | "prep" | "recording" | "uploading" | "review" | "done" | "error";
+type Phase = "loading" | "intro" | "prep" | "coding" | "recording" | "uploading" | "review" | "done" | "error";
+
+// Автосохранение черновика кода на сервер: не чаще, чем раз в пару секунд после паузы.
+const DRAFT_SAVE_DELAY_MS = 2500;
 
 function formatSeconds(total: number): string {
   const minutes = Math.floor(total / 60);
@@ -23,8 +29,26 @@ function attemptsUsed(state: InterviewState, index: number): number {
   return state.answers.filter((a) => a.question_index === index && a.status !== "abandoned").length;
 }
 
+/** Попытки с видео: попытка, где лежит только код, записи не занимает. */
+function explanationAttempts(state: InterviewState, index: number): number {
+  return state.answers.filter(
+    (a) => a.question_index === index && a.status !== "abandoned" && !(a.code_submission && a.media_size === 0),
+  ).length;
+}
+
 function hasUploaded(state: InterviewState, index: number): boolean {
   return state.answers.some((a) => a.question_index === index && a.status !== "recording" && a.status !== "abandoned");
+}
+
+function latestCodeAnswer(state: InterviewState, index: number): RoomAnswer | null {
+  const rows = state.answers.filter((a) => a.question_index === index && a.status !== "abandoned" && a.code_submission);
+  if (rows.length === 0) return null;
+  return rows.reduce((best, a) => (a.attempt > best.attempt ? a : best));
+}
+
+function isAnswered(state: InterviewState, question: SnapshotQuestion): boolean {
+  if (question.kind === "code") return Boolean(latestCodeAnswer(state, question.index)?.code_submission?.submitted_at);
+  return hasUploaded(state, question.index);
 }
 
 export function InterviewRoom({
@@ -40,15 +64,19 @@ export function InterviewRoom({
   const [phase, setPhase] = useState<Phase>("loading");
   const [question, setQuestion] = useState<SnapshotQuestion | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [avatar, setAvatar] = useState<AvatarInfo | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resumed, setResumed] = useState(false);
+  const [codeBusy, setCodeBusy] = useState<"submit" | "run" | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const recorderRef = useRef<AnswerRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
+  const draftTimerRef = useRef<number | null>(null);
   const wakeLock = useRef<{ release: () => Promise<void> } | null>(null);
 
   const index = state?.current_question_index ?? 0;
@@ -125,20 +153,42 @@ export function InterviewRoom({
     }
   };
 
+  const clearDraftTimer = () => {
+    if (draftTimerRef.current) {
+      window.clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => clearDraftTimer(), []);
+
+  const replayQuestion = () => {
+    if (audioRef.current && audioUrl) void audioRef.current.play().catch(() => undefined);
+  };
+
   /** Показать вопрос: озвучка и отсчёт подготовки стартуют в одном клике (iOS). */
   const showQuestion = async () => {
     if (!state) return;
     try {
       const revealed = await roomApi.reveal(token, index);
       setQuestion(revealed.question);
+      setAvatar(revealed.avatar);
       const url = revealed.audio_url ? `${API_BASE_URL.replace(/\/api$/, "")}${revealed.audio_url}` : null;
       setAudioUrl(url);
-      setPhase("prep");
-      setCountdown(revealed.question.prep_seconds);
-      if (url && audioRef.current) {
+      // Если аватар произносит вопрос сам, вторую озвучку поверх не запускаем.
+      const avatarSpeaks = Boolean(revealed.avatar?.enabled && revealed.avatar.clip_url);
+      if (url && audioRef.current && !avatarSpeaks) {
         audioRef.current.src = url;
         void audioRef.current.play().catch(() => undefined);
       }
+      if (revealed.question.kind === "code") {
+        // Секция кода: без таймера подготовки и записи — сначала решение, пояснение по желанию.
+        setCodeError(null);
+        setPhase("coding");
+        return;
+      }
+      setPhase("prep");
+      setCountdown(revealed.question.prep_seconds);
       if (revealed.question.prep_seconds > 0) {
         clearTimer();
         timerRef.current = window.setInterval(() => {
@@ -213,11 +263,14 @@ export function InterviewRoom({
   };
 
   const goNext = async () => {
+    clearDraftTimer();
     try {
       const next = await roomApi.next(token);
+      if (question?.kind === "code") clearDraft(draftStorageKey(token, question.id));
       setState(next);
       setQuestion(null);
       setAudioUrl(null);
+      setAvatar(null);
       if (next.status === "completed") {
         setPhase("done");
         await telemetry.flush();
@@ -231,13 +284,80 @@ export function InterviewRoom({
     }
   };
 
+  // ------------------------------------------------------------ секция кода
+
+  const mergeAnswer = useCallback((answer: RoomAnswer, { draft = false }: { draft?: boolean } = {}) => {
+    setState((current) => {
+      if (!current) return current;
+      const existing = current.answers.find((a) => a.id === answer.id);
+      // Ответ на черновик, пришедший после отправки, не должен «разотправить» код.
+      if (draft && existing?.code_submission?.submitted_at) return current;
+      return {
+        ...current,
+        answers: existing ? current.answers.map((a) => (a.id === answer.id ? answer : a)) : [...current.answers, answer],
+      };
+    });
+  }, []);
+
+  const codeAnswer = state && question ? latestCodeAnswer(state, question.index) : null;
+  const codeSubmission = codeAnswer?.code_submission ?? null;
+
+  const scheduleDraftSave = (draft: CodeDraft) => {
+    // После отправки правки уходят только явной повторной отправкой.
+    if (!question || codeSubmission?.submitted_at) return;
+    clearDraftTimer();
+    draftTimerRef.current = window.setTimeout(() => {
+      draftTimerRef.current = null;
+      roomApi
+        .saveCode(token, question.id, { ...draft, submit: false })
+        .then((answer) => mergeAnswer(answer, { draft: true }))
+        .catch(() => undefined); // черновик есть в localStorage — повторим со следующей правкой
+    }, DRAFT_SAVE_DELAY_MS);
+  };
+
+  const submitCode = async (draft: CodeDraft) => {
+    if (!question) return;
+    clearDraftTimer();
+    setCodeBusy("submit");
+    setCodeError(null);
+    try {
+      mergeAnswer(await roomApi.saveCode(token, question.id, { ...draft, submit: true }));
+    } catch (caught) {
+      setCodeError(caught instanceof ApiError ? caught.message : "Не удалось отправить код. Проверьте соединение.");
+    } finally {
+      setCodeBusy(null);
+    }
+  };
+
+  const runCode = async (draft: CodeDraft) => {
+    if (!question) return;
+    clearDraftTimer();
+    setCodeBusy("run");
+    setCodeError(null);
+    try {
+      mergeAnswer(await roomApi.runCode(token, question.id, draft));
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === "runner_disabled") {
+        setCodeError("Запуск кода появится позже — отправьте решение без запуска.");
+      } else {
+        setCodeError(caught instanceof ApiError ? caught.message : "Не удалось запустить код.");
+      }
+    } finally {
+      setCodeBusy(null);
+    }
+  };
+
   const retakesLeft = useMemo(() => {
     if (!state || !question) return 0;
-    return question.retakes_allowed + 1 - attemptsUsed(state, question.index);
+    const used = question.kind === "code" ? explanationAttempts(state, question.index) : attemptsUsed(state, question.index);
+    return question.retakes_allowed + 1 - used;
   }, [state, question]);
 
+  const currentQuestion = state?.questions.find((q) => q.index === index) ?? null;
   const uploadPercent = progress && progress.bytesTotal > 0 ? Math.round((progress.bytesUploaded / progress.bytesTotal) * 100) : 0;
   const remaining = question ? Math.max(0, question.max_answer_seconds - elapsed) : 0;
+  const isCode = question?.kind === "code";
+  const nextLabel = index + 1 < total ? "Следующий вопрос" : "Завершить интервью";
 
   if (phase === "loading") return <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />;
 
@@ -265,6 +385,10 @@ export function InterviewRoom({
     );
   }
 
+  const stage = question ? (
+    <AvatarStage question={question} avatar={avatar} audioRef={audioRef} hasAudio={Boolean(audioUrl)} onReplay={replayQuestion} />
+  ) : null;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -275,8 +399,8 @@ export function InterviewRoom({
       </div>
       <Progress value={total ? ((index + (phase === "review" ? 1 : 0)) / total) * 100 : 0} className="h-1.5" />
 
-      <div className="grid gap-4 md:grid-cols-[2fr_3fr]">
-        <div className="relative overflow-hidden rounded-xl bg-black">
+      <div className={phase === "coding" ? "grid gap-4 md:grid-cols-[1fr_3fr]" : "grid gap-4 md:grid-cols-[2fr_3fr]"}>
+        <div className="relative self-start overflow-hidden rounded-xl bg-black">
           <video ref={videoRef} muted playsInline autoPlay className="aspect-[4/3] w-full object-cover" />
           {phase === "recording" ? (
             <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white">
@@ -285,7 +409,7 @@ export function InterviewRoom({
           ) : null}
         </div>
 
-        <div className="flex flex-col justify-between rounded-xl border p-5">
+        <div className="flex min-w-0 flex-col justify-between rounded-xl border p-5">
           {phase === "intro" ? (
             <>
               <div>
@@ -296,7 +420,9 @@ export function InterviewRoom({
                 ) : null}
                 <p className="text-lg font-semibold">Готовы к вопросу {index + 1}?</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  После нажатия вопрос появится на экране и будет озвучен. У вас будет время подготовиться, затем начнётся запись.
+                  {currentQuestion?.kind === "code"
+                    ? "Это задача на код: после нажатия вопрос появится на экране и будет озвучен, ниже откроется редактор. Таймера нет — отправьте решение, когда будете готовы."
+                    : "После нажатия вопрос появится на экране и будет озвучен. У вас будет время подготовиться, затем начнётся запись."}
                 </p>
               </div>
               <Button size="lg" className="mt-6 w-full" onClick={showQuestion}>
@@ -306,21 +432,50 @@ export function InterviewRoom({
             </>
           ) : null}
 
+          {phase === "coding" && question && state ? (
+            <div className="space-y-4">
+              {stage}
+              <CodeEditor
+                key={question.id}
+                storageKey={draftStorageKey(token, question.id)}
+                languages={state.code_runner.languages}
+                maxBytes={state.code_runner.max_source_bytes}
+                runnerEnabled={state.code_runner.enabled}
+                initial={codeSubmission ? { language: codeSubmission.language, source: codeSubmission.source } : null}
+                submittedAt={codeSubmission?.submitted_at ?? null}
+                runResult={codeSubmission?.run_result ?? null}
+                busy={codeBusy}
+                error={codeError}
+                onSubmit={submitCode}
+                onRun={runCode}
+                onChange={scheduleDraftSave}
+              />
+              {codeSubmission?.submitted_at ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="lg" className="flex-1" onClick={goNext}>
+                      {nextLabel}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                    {retakesLeft > 0 ? (
+                      <Button size="lg" variant="outline" onClick={() => startRecording(question)}>
+                        <Video className="mr-2 h-4 w-4" /> Записать пояснение
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Пояснение на камеру необязательно: расскажите, как рассуждали, — так оценят подход, а не только результат.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Отправьте код, чтобы перейти к следующему вопросу.</p>
+              )}
+            </div>
+          ) : null}
+
           {(phase === "prep" || phase === "recording" || phase === "uploading" || phase === "review") && question ? (
             <div className="space-y-4">
-              <div className="flex items-start gap-2">
-                <p className="text-lg font-semibold leading-snug">{question.text}</p>
-                {audioUrl ? (
-                  <button
-                    type="button"
-                    aria-label="Прослушать вопрос ещё раз"
-                    className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-                    onClick={() => audioRef.current && void audioRef.current.play().catch(() => undefined)}
-                  >
-                    <Volume2 className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
+              {stage}
 
               {phase === "prep" ? (
                 <div className="space-y-3">
@@ -338,7 +493,9 @@ export function InterviewRoom({
                   {remaining <= 10 ? (
                     <p className="text-sm text-warning">Осталось {remaining} с — завершайте мысль.</p>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Говорите свободно. Ответ не дольше {formatSeconds(question.max_answer_seconds)}.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isCode ? "Расскажите, как устроено ваше решение." : "Говорите свободно."} Ответ не дольше {formatSeconds(question.max_answer_seconds)}.
+                    </p>
                   )}
                   <Button size="lg" variant="destructive" className="w-full" onClick={stopRecording}>
                     <Square className="mr-2 h-4 w-4" /> Завершить ответ
@@ -357,27 +514,33 @@ export function InterviewRoom({
 
               {phase === "review" ? (
                 <div className="space-y-3">
-                  <p className="text-sm text-success">Ответ сохранён.</p>
+                  <p className="text-sm text-success">{isCode ? "Пояснение записано." : "Ответ сохранён."}</p>
                   <div className="flex flex-wrap gap-2">
                     <Button size="lg" className="flex-1" onClick={goNext}>
-                      {index + 1 < total ? "Следующий вопрос" : "Завершить интервью"}
+                      {nextLabel}
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                     {retakesLeft > 0 ? (
                       <Button size="lg" variant="outline" onClick={retake}>
-                        <RotateCcw className="mr-2 h-4 w-4" /> Перезаписать (осталось {retakesLeft})
+                        <RotateCcw className="mr-2 h-4 w-4" /> {isCode ? "Перезаписать пояснение" : "Перезаписать"} (осталось {retakesLeft})
                       </Button>
                     ) : null}
                   </div>
                 </div>
               ) : null}
+
+              {isCode && codeSubmission ? <CodeSubmission submission={codeSubmission} className="border-t pt-4" /> : null}
             </div>
           ) : null}
         </div>
       </div>
       <audio ref={audioRef} preload="auto" className="hidden" />
-      {hasUploaded(state ?? { answers: [] } as unknown as InterviewState, index) && phase === "intro" ? (
-        <p className="text-xs text-muted-foreground">На этот вопрос уже есть записанный ответ — можно перейти дальше после показа вопроса.</p>
+      {state && currentQuestion && phase === "intro" && isAnswered(state, currentQuestion) ? (
+        <p className="text-xs text-muted-foreground">
+          {currentQuestion.kind === "code"
+            ? "Код на этот вопрос уже отправлен — можно перейти дальше после показа вопроса."
+            : "На этот вопрос уже есть записанный ответ — можно перейти дальше после показа вопроса."}
+        </p>
       ) : null}
     </div>
   );
