@@ -1,7 +1,7 @@
 """answer code submission
 
 Revision ID: 7751205fe20c
-Revises: c100757fb1a1
+Revises: 2e50dfb96cb0
 Create Date: 2026-09-03 18:41:42.007883
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "7751205fe20c"
-down_revision: str | None = "c100757fb1a1"
+down_revision: str | None = "2e50dfb96cb0"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
