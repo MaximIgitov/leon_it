@@ -22,6 +22,7 @@ from leonit.core.errors import install_error_handlers
 from leonit.core.logging import setup_logging
 from leonit.core.observability import RequestContextMiddleware
 from leonit.core.security_headers import SecurityHeadersMiddleware
+from leonit.dashboard.router import router as dashboard_router
 from leonit.health.router import router as health_router
 from leonit.interviews.router import room_router
 from leonit.interviews.router import staff_router as interview_staff_router
@@ -48,6 +49,7 @@ ROUTERS: list[APIRouter] = [
     reports_router,
     public_reports_router,
     emails_router,
+    dashboard_router,
 ]
 
 

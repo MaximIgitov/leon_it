@@ -42,6 +42,7 @@ leonit/
 ├── ai/             шлюз к моделям: провайдеры LLM/STT/TTS, structured output, диагностика
 ├── jobs/           очередь задач в базе и воркер
 ├── media/          подписанные ссылки на файлы и отдача с Range
+├── dashboard/      агрегаты по интервью: воронка, сроки, баллы, согласие с ИИ
 └── <area>/         предметные области: models · schemas · service · router
 ```
 
@@ -136,3 +137,50 @@ await service.enqueue(
 `sign_media_url(key, ttl_s=900, content_type=..., filename=...)` возвращает
 `/api/media/{token}` (JWT с `typ=media`), роутер проверяет подпись и срок и
 отдаёт файл потоково с поддержкой `Range` (206 / 416) и `HEAD`.
+
+### `dashboard/` — метрики организации и вакансии
+
+Три ручки под правом `dashboard.read` (у нанимающего менеджера — только по
+допущенным вакансиям, периметр берётся из `visible_vacancy_ids`):
+
+| Ручка | Что возвращает |
+|---|---|
+| `GET /dashboard/overview` | Сводка по организации. |
+| `GET /dashboard/vacancies/{id}` | Та же сводка по одной вакансии (плюс `vacancy`). |
+| `GET /dashboard/timeseries?vacancy_id=` | Ряд по дням: приглашено / завершено / оценено. |
+
+Период задаётся `from` и `to` (ISO-даты, без зоны — UTC); без параметров —
+последние 30 дней, `all_time=true` снимает нижнюю границу. У ряда по дням есть
+`tz_offset_minutes` (как `-Date.getTimezoneOffset()`), чтобы дни считались в
+зоне пользователя.
+
+Все цифры выводятся из таймстемпов интервью (`invited_at … decided_at`), без
+отдельной таблицы событий:
+
+* **воронка** `invited → opened → consented → started → completed → evaluated →
+  decided` — когортная: интервью попадает в период по `invited_at`, дальше
+  считается, до какого шага оно дошло; у каждого шага конверсия с предыдущего
+  и от приглашённых;
+* `completion_rate`, медианы `median_time_to_complete_h` (приглашение →
+  завершение) и `median_time_to_result_h` (завершение → заключение),
+  `avg_retakes` (перезаписи зачётных ответов);
+* `recommendation_breakdown` (`fit / no_fit / needs_check`),
+  `decision_breakdown` (`advance / reject / hold / pending`, где `pending` —
+  завершили, решения нет), `avg_fit_score`;
+* `ai_agreement` — доля решений «дальше»/«отказ», совпавших с рекомендацией
+  (`advance ↔ fit`, `reject ↔ no_fit`); «пауза» и «нужна проверка» не считаются
+  позицией и в пары не попадают, число пар — `ai_agreement_pairs`;
+* `flags_rate` — доля интервью с integrity-флагами; до PR 13 плана всегда 0;
+* `active_vacancies`, `interviews_last_7d / _30d` — «пульс» без учёта периода.
+
+Ряд по дням, в отличие от воронки, считает события по их собственным датам:
+завершение сегодня относится к сегодняшнему дню, даже если пригласили месяц
+назад. Дни без событий заполняются нулями.
+
+Модуль оценки подключается через `evaluation_model()` (импорт
+`leonit.evaluation.models.Evaluation` в try/except, контракт колонок —
+`interview_id`, `fit_score`, `recommendation`); без него `evaluation_available`
+= false, а баллы и согласие с ИИ пустые. SQL — только переносимые агрегаты
+(`count` / `case`): в SQLite нет `percentile_cont` и `date_trunc`, а интервью в
+организации немного, поэтому медианы и разбивка по дням считаются в Python по
+выборке значений.
