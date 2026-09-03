@@ -1,4 +1,4 @@
-.PHONY: backend-dev backend-test backend-lint migrate eval check-models e2e eval
+.PHONY: backend-dev backend-test backend-lint migrate eval check-models e2e demo eval
 
 backend-dev:
 	cd backend && uv run uvicorn leonit.main:app --reload --host 0.0.0.0 --port 8000
@@ -24,3 +24,6 @@ check-models:
 
 e2e:
 	cd e2e && npm test
+
+demo:
+	cd backend && uv run python -m leonit.demo.seed --password "$(DEMO_PASSWORD)"
