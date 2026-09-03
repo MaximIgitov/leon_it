@@ -1,4 +1,4 @@
-.PHONY: backend-dev backend-test backend-lint migrate eval
+.PHONY: backend-dev backend-test backend-lint migrate eval check-models e2e eval
 
 backend-dev:
 	cd backend && uv run uvicorn leonit.main:app --reload --host 0.0.0.0 --port 8000
@@ -15,3 +15,12 @@ migrate:
 # Согласие ИИ-оценщика с экспертом на eval-датасете (см. backend/evals/README.md).
 eval:
 	cd backend && uv run python evals/eval_agreement.py --json evals/last-run.json
+
+eval:
+	cd backend && uv run python evals/eval_agreement.py --json evals/last-run.json
+
+check-models:
+	cd backend && uv run python -m leonit.ai.diagnostics
+
+e2e:
+	cd e2e && npm test
