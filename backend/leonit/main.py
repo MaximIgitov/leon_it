@@ -21,8 +21,15 @@ from leonit.core.logging import setup_logging
 from leonit.core.observability import RequestContextMiddleware
 from leonit.core.security_headers import SecurityHeadersMiddleware
 from leonit.health.router import router as health_router
+from leonit.vacancies.router import router as vacancies_router
 
-ROUTERS: list[APIRouter] = [health_router, auth_router, invites_router, organization_router]
+ROUTERS: list[APIRouter] = [
+    health_router,
+    auth_router,
+    invites_router,
+    organization_router,
+    vacancies_router,
+]
 
 
 @asynccontextmanager
