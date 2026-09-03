@@ -435,9 +435,7 @@ class DemoSeeder:
             )
         interview, _ = await interviews.invite(
             actor,
-            InviteRequest(
-                vacancy_id=str(vacancy.id), candidate_id=str(candidate.id), send_email=False
-            ),
+            InviteRequest(vacancy_id=vacancy.id, candidate_id=candidate.id, send_email=False),
         )
         return interview
 

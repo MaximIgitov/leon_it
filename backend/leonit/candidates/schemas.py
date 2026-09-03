@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -30,6 +31,8 @@ class CandidateCreate(BaseModel):
     email: EmailStr
     phone: str | None = Field(default=None, max_length=64)
     notes: str = Field(default="", max_length=4000)
+    # Идентификатор во внешней системе (HH, Huntflow, своя ATS через API).
+    external_ref: str | None = Field(default=None, max_length=128)
 
     @field_validator("full_name")
     @classmethod
@@ -47,7 +50,13 @@ class CandidateBulkCreate(BaseModel):
     """Массовое добавление: по кандидату на строку — «Имя Фамилия, email» или «email»."""
 
     text: str = Field(min_length=1, max_length=100_000)
-    vacancy_id: str | None = None
+    vacancy_id: UUID | None = None
+
+    @field_validator("vacancy_id", mode="before")
+    @classmethod
+    def _empty_as_none(cls, value: object) -> object:
+        # Диалог кабинета шлёт пустую строку, когда вакансия не выбрана.
+        return None if value == "" else value
 
     def parse(self) -> list[tuple[str, str]]:
         rows: list[tuple[str, str]] = []
@@ -87,8 +96,9 @@ class BulkCreateResult(BaseModel):
 
 
 class InviteRequest(BaseModel):
-    vacancy_id: str
-    candidate_id: str | None = None
+    # UUID проверяет pydantic: неверный формат — 422, а не ValueError в сервисе.
+    vacancy_id: UUID
+    candidate_id: UUID | None = None
     # Либо существующий кандидат, либо новый по имени и e-mail.
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
