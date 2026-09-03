@@ -1,0 +1,17 @@
+{
+  "name": "leonit-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Сквозные сценарии LeonIT на Playwright",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^20.19.0",
+    "typescript": "^5.9.0"
+  }
+}
