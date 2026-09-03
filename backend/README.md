@@ -42,6 +42,7 @@ leonit/
 ├── ai/             шлюз к моделям: провайдеры LLM/STT/TTS, structured output, диагностика
 ├── jobs/           очередь задач в базе и воркер
 ├── media/          подписанные ссылки на файлы и отдача с Range
+├── pipeline/       медиа-пайплайн ответа: ffmpeg, транскрибация, срок хранения
 └── <area>/         предметные области: models · schemas · service · router
 ```
 
@@ -136,3 +137,58 @@ await service.enqueue(
 `sign_media_url(key, ttl_s=900, content_type=..., filename=...)` возвращает
 `/api/media/{token}` (JWT с `typ=media`), роутер проверяет подпись и срок и
 отдаёт файл потоково с поддержкой `Range` (206 / 416) и `HEAD`.
+
+### `pipeline/` — медиа-пайплайн
+
+Видео на сервере никогда не перекодируется: оригинал ответа хранится как
+записал браузер. После `complete` записи в очередь встаёт задача
+`answer.process` (ресурс `ffmpeg` — один процесс на воркер), которая делает
+четыре шага (`pipeline/service.py`):
+
+1. `ffprobe` → `answer.media_meta`: `duration_s`, `format_name`, кодеки,
+   размер кадра, частота кадров, `tags` (`format.encoder`,
+   `video.handler_name`, …). По тегам integrity отличает MediaRecorder
+   Chrome/Safari от Lavf/OBS/HandBrake — это «истина» о том, чем записан файл.
+2. Аудио → `answer.audio_key` (`….ogg` рядом с видео). Opus из WebM копируется
+   без перекодирования (`-c:a copy`), остальное (AAC из Safari/iOS) сводится в
+   моно 16 кГц Opus 32 кбит/с — достаточно для STT и в разы меньше лимита
+   провайдера.
+3. Для WebM — ремукс `-c copy` в `….playback.webm` (`media_meta.playback_key`):
+   MediaRecorder не пишет длительность и cues, без ремукса перемотка к цитате
+   в отчёте не работает. `InterviewRoomService.media_url` отдаёт ремукс, если
+   он есть, `audio_url` — аудио (поле `audio_url` в `GET /interviews/{id}/answers`).
+   Сбой ремукса обработку не останавливает (`media_meta.playback_error`).
+4. STT: `get_stt().transcribe(audio, content_type="audio/ogg",
+   language=<язык вакансии>, prompt=<название вакансии и её навыки>)` →
+   `transcript_text`, `transcript_segments` (`[{start_s, end_s, text}]`),
+   `transcript_language`.
+
+Статусы ответа: `uploaded`/`failed` → `processing` → `done` (`processed_at`)
+или `failed` (`processing_error`, до 2000 символов) с пробросом исключения —
+очередь повторит задачу с паузой, а повтор корректно стартует из `failed`.
+Метаданные, аудио и ремукс коммитятся до вызова STT: если упал провайдер,
+аудио у сотрудника уже есть. Ответ в другом статусе (`processing`, `done`)
+пропускается.
+
+`pipeline/ffmpeg.py` — async-обёртки `probe`, `extract_audio`, `remux` поверх
+`asyncio.create_subprocess_exec`: всегда `-hide_banner -loglevel error
+-threads 1`, таймаут `FFMPEG_TIMEOUT_S` (10 минут, процесс убивается), на
+POSIX — `nice -n 10`, результат пишется во временный файл и переименовывается
+атомарно. Ошибка → `PipelineError` с хвостом stderr. Настройки: `FFMPEG_BIN`,
+`FFPROBE_BIN`, `FFMPEG_TIMEOUT_S`, `RETENTION_PURGE_HOUR_UTC`. Пайплайн
+работает с локальным томом (`LocalStorage.path_for`), а читает, проверяет и
+удаляет файлы через абстракцию `Storage`.
+
+**Срок хранения.** Задача `retention.purge` (ресурс `default`) для каждой
+организации удаляет видео, аудио и ремукс ответов интервью, завершённых
+(`completed_at`; для отменённых — `cancelled_at`) раньше, чем
+`retention_days` организации: ключи обнуляются, в `media_meta.purged_at`
+пишется время, транскрипты, метаданные и оценки не трогаются, каждое удаление
+попадает в лог. Воркер на старте ставит чистку на сегодня
+(`schedule_daily_purge`: ключ `retention:purge:<дата>`, не раньше
+`RETENTION_PURGE_HOUR_UTC`, одна задача в сутки), а выполненная чистка ставит
+следующую на завтра. Вручную, мимо очереди:
+`uv run python -m leonit.pipeline.purge [--dry-run]`.
+
+Тесты `tests/test_pipeline.py` генерируют файлы самим ffmpeg (`-f lavfi`) и
+пропускаются, если ffmpeg/ffprobe нет в PATH.
