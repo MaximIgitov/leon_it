@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import importlib
 
-MODEL_MODULES: tuple[str, ...] = ("leonit.accounts.models",)
+MODEL_MODULES: tuple[str, ...] = (
+    "leonit.accounts.models",
+    "leonit.vacancies.models",
+)
 
 
 def load_all_models() -> None:
