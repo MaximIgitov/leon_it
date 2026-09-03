@@ -8,22 +8,25 @@ from typing import Any
 
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from leonit.core.db import get_session_maker
 from leonit.core.errors import ConflictError, NotFoundError
 from leonit.core.time import aware, utcnow
 from leonit.jobs import service
+from leonit.jobs import worker as worker_module
 from leonit.jobs.models import Job, JobStatus
 from leonit.jobs.registry import (
     JobContext,
+    JobHandler,
     job,
     load_all_handlers,
     registered_kinds,
     unregister,
 )
 from leonit.jobs.schemas import JobRead
-from leonit.jobs.service import backoff_delay_s
+from leonit.jobs.service import backoff_delay_s, claim_statement
 from leonit.jobs.worker import Worker
 
 
@@ -156,6 +159,18 @@ async def test_zombie_without_attempts_left_becomes_failed(
 def test_backoff_is_exponential_with_cap() -> None:
     assert [backoff_delay_s(n) for n in range(4)] == [5, 10, 20, 40]
     assert backoff_delay_s(7) == 600 and backoff_delay_s(20) == 600
+
+
+def test_claim_statement_uses_skip_locked_on_postgresql() -> None:
+    # На PostgreSQL параллельные воркеры не должны ни ждать друг друга, ни брать
+    # одну задачу: кандидат выбирается под FOR UPDATE SKIP LOCKED.
+    statement = claim_statement("w1", ["a", "b"], now=utcnow(), lease_s=30, skip_locked=True)
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "RETURNING" in sql and "jobs.kind IN" in sql
+
+    plain = claim_statement("w1", None, now=utcnow(), lease_s=30, skip_locked=False)
+    assert "FOR UPDATE" not in str(plain.compile(dialect=sqlite.dialect()))
 
 
 async def test_fail_retries_then_fails_after_max_attempts(session: AsyncSession, kind: str) -> None:
@@ -383,6 +398,75 @@ async def test_lost_lease_cancels_handler(session: AsyncSession, worker: Worker,
     assert untouched.status == JobStatus.running and untouched.locked_by == "w-other"
 
 
+async def test_heartbeat_stops_before_result_is_recorded(
+    session: AsyncSession, worker: Worker, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @job(kind)
+    async def handler(payload: dict[str, Any], ctx: JobContext) -> dict[str, Any]:
+        return {"ok": True}
+
+    observed: list[bool] = []
+    original_heartbeat = worker._heartbeat
+
+    async def spying_heartbeat(job_id: uuid.UUID) -> bool:
+        alive = await original_heartbeat(job_id)
+        observed.append(alive)
+        return alive
+
+    original_complete = worker._complete
+
+    async def slow_complete(job_: Job, result: dict[str, Any] | None) -> None:
+        await original_complete(job_, result)
+        # Окно между коммитом результата и отменой heartbeat: тик в нём видел бы
+        # задачу уже не running и «терял» аренду.
+        await asyncio.sleep(worker.heartbeat_s * 4)
+
+    monkeypatch.setattr(worker, "_heartbeat", spying_heartbeat)
+    monkeypatch.setattr(worker, "_complete", slow_complete)
+
+    job_ = await service.enqueue(session, kind, {})
+    await session.commit()
+    assert await worker.run_once()
+    assert (await _status(job_.id)).status == JobStatus.succeeded
+    assert False not in observed
+    assert worker._lost_leases == set()
+
+
+async def test_handler_that_cannot_start_fails_without_retry(
+    session: AsyncSession, worker: Worker, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def sync_handler(payload: dict[str, Any], ctx: JobContext) -> dict[str, Any]:
+        return {"never": True}
+
+    # Реестр такое не пропустит; имитируем обход реестра (старый код, сторонний модуль).
+    broken = JobHandler(kind=kind, resource="default", func=sync_handler)  # type: ignore[arg-type]
+    monkeypatch.setattr(worker_module, "get_handler", lambda _kind: broken)
+
+    job_ = await service.enqueue(session, kind, {}, max_attempts=5)
+    await session.commit()
+    assert await worker.run_once() is True
+    failed = await _status(job_.id)
+    # Не зависла в running до конца аренды и не ушла на повтор: это баг кода.
+    assert failed.status == JobStatus.failed and failed.attempts == 1
+    assert "TypeError" in (failed.last_error or "")
+    assert worker._inflight == dict.fromkeys(worker.concurrency, 0)
+
+
+async def test_handler_with_wrong_signature_fails_without_retry(
+    session: AsyncSession, worker: Worker, kind: str
+) -> None:
+    @job(kind)
+    async def handler(payload: dict[str, Any]) -> None:  # нет параметра ctx
+        return None
+
+    job_ = await service.enqueue(session, kind, {}, max_attempts=5)
+    await session.commit()
+    assert await worker.run_once() is True
+    failed = await _status(job_.id)
+    assert failed.status == JobStatus.failed and failed.attempts == 1
+    assert "TypeError" in (failed.last_error or "")
+
+
 async def test_worker_respects_resource_capacity(session: AsyncSession, kind: str) -> None:
     worker = Worker(
         worker_id="w-cap",
@@ -431,3 +515,13 @@ def test_registry_rejects_duplicates_and_bad_resources(kind: str) -> None:
 
     with pytest.raises(ValueError, match="unknown resource"):
         job(f"{kind}.x", resource="gpu")
+
+
+def test_registry_rejects_non_coroutine_handler(kind: str) -> None:
+    with pytest.raises(TypeError, match="async function"):
+
+        @job(kind)
+        def sync_handler(payload, ctx):
+            return None
+
+    assert kind not in registered_kinds()

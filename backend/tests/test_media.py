@@ -11,7 +11,12 @@ from leonit.core.errors import PermissionDeniedError
 from leonit.core.storage import get_storage
 from leonit.core.time import utcnow
 from leonit.media.router import ByteRange, RangeNotSatisfiable, parse_range
-from leonit.media.service import guess_content_type, sign_media_url, verify_media_token
+from leonit.media.service import (
+    guess_content_type,
+    is_inline_safe,
+    sign_media_url,
+    verify_media_token,
+)
 
 BODY = b"0123456789abcdef"
 
@@ -106,6 +111,73 @@ async def test_malformed_range_falls_back_to_full_body(client: AsyncClient, key:
     assert response.status_code == 200 and response.content == BODY
 
 
+async def test_inverted_range_is_ignored(client: AsyncClient, key: str) -> None:
+    # Конец раньше начала — по RFC 9110 диапазон недействителен и игнорируется:
+    # 200 с целым файлом, а не отрицательный Content-Length и падение отдачи.
+    response = await client.get(sign_media_url(key), headers={"Range": "bytes=5-2"})
+    assert response.status_code == 200
+    assert response.content == BODY
+    assert response.headers["content-length"] == str(len(BODY))
+    assert "content-range" not in response.headers
+
+
+async def test_head_with_unsatisfiable_range_returns_416(client: AsyncClient, key: str) -> None:
+    response = await client.head(sign_media_url(key), headers={"Range": "bytes=16-"})
+    assert response.status_code == 416
+    assert response.headers["content-range"] == "bytes */16"
+    assert response.content == b""
+
+
+async def test_non_media_content_type_is_served_as_attachment(
+    client: AsyncClient, key: str
+) -> None:
+    # «Резюме» с text/html, отрисованное inline на нашем origin, — stored-XSS.
+    response = await client.get(
+        sign_media_url(key, content_type="text/html", filename="resume.html")
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html"
+    assert response.headers["content-disposition"].startswith('attachment; filename="resume.html"')
+    assert response.headers["content-security-policy"] == "sandbox"
+
+    inline = await client.get(sign_media_url(key, content_type="video/webm"))
+    assert inline.headers["content-disposition"] == "inline"
+    assert inline.headers["content-security-policy"] == "sandbox"
+
+    unsatisfiable = await client.get(sign_media_url(key), headers={"Range": "bytes=99-"})
+    assert unsatisfiable.status_code == 416
+    assert unsatisfiable.headers["content-security-policy"] == "sandbox"
+
+
+@pytest.mark.parametrize(
+    ("content_type", "inline"),
+    [
+        ("video/webm", True),
+        ("audio/mpeg; codecs=mp3", True),
+        ("image/png", True),
+        ("application/pdf", True),
+        ("Application/PDF", True),
+        ("image/svg+xml", False),
+        ("text/html", False),
+        ("text/html; charset=utf-8", False),
+        ("application/json", False),
+        ("application/octet-stream", False),
+    ],
+)
+def test_is_inline_safe(content_type: str, inline: bool) -> None:
+    assert is_inline_safe(content_type) is inline
+
+
+async def test_token_without_exp_is_rejected(client: AsyncClient, key: str) -> None:
+    settings = get_settings()
+    eternal = jwt.encode(
+        {"typ": "media", "key": key}, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
+    )
+    with pytest.raises(PermissionDeniedError, match="invalid media link"):
+        verify_media_token(eternal)
+    assert (await client.get(f"/api/media/{eternal}")).status_code == 403
+
+
 async def test_head_returns_headers_without_body(client: AsyncClient, key: str) -> None:
     response = await client.head(sign_media_url(key, filename="answer.webm"))
     assert response.status_code == 200
@@ -139,7 +211,12 @@ def test_parse_range_edge_cases() -> None:
     assert parse_range("bytes=-100", 10) == ByteRange(0, 9)
     assert parse_range("bytes=1-2,4-5", 10) is None
     assert parse_range("bytes=abc", 10) is None
+    assert parse_range("bytes=5-2", 10) is None
+    assert parse_range("bytes=20-16", 10) is None
+    assert parse_range("bytes=9-9", 10) == ByteRange(9, 9)
     with pytest.raises(RangeNotSatisfiable):
         parse_range("bytes=10-", 10)
+    with pytest.raises(RangeNotSatisfiable):
+        parse_range("bytes=0-", 0)
     with pytest.raises(RangeNotSatisfiable):
         parse_range("bytes=-1", 0)

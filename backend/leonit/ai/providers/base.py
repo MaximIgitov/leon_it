@@ -45,9 +45,18 @@ class ProviderUnavailableError(ProviderError):
 class ProviderResponseError(ProviderError):
     """Провайдер ответил, но ответ непригоден: 4xx, не JSON, не по схеме."""
 
-    def __init__(self, detail: str, *, upstream_status: int | None = None) -> None:
+    def __init__(
+        self,
+        detail: str,
+        *,
+        upstream_status: int | None = None,
+        upstream_message: str | None = None,
+    ) -> None:
         super().__init__(detail)
         self.upstream_status = upstream_status
+        # Текст ошибки провайдера отдельно от нашего detail: по нему решается,
+        # относится ли отказ к формату ответа (тогда уместен фолбэк) или нет.
+        self.upstream_message = upstream_message
 
 
 @dataclass(slots=True)

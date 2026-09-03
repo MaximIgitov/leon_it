@@ -80,20 +80,45 @@ def _is_retryable(status: int) -> bool:
     return status >= 500 or status in _RETRYABLE_STATUSES
 
 
+def _message_from_body(body: Any) -> str | None:
+    """Достать текст ошибки из тела в любом из ходовых форматов агрегаторов."""
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])[:300]
+    if isinstance(error, str):
+        return error[:300]
+    if body.get("message"):
+        return str(body["message"])[:300]
+    return None
+
+
 def _error_message(response: httpx.Response) -> str:
     try:
         body = response.json()
     except ValueError:
         return response.text[:300]
-    if isinstance(body, dict):
-        error = body.get("error")
-        if isinstance(error, dict) and error.get("message"):
-            return str(error["message"])[:300]
-        if isinstance(error, str):
-            return error[:300]
-        if body.get("message"):
-            return str(body["message"])[:300]
-    return response.text[:300]
+    return _message_from_body(body) or response.text[:300]
+
+
+def _chunk_error_message(chunk: dict[str, Any]) -> str | None:
+    """Ошибка внутри 200-стрима: провайдер уже отдал заголовки, а потом сломался."""
+    if "error" not in chunk:
+        return None
+    return _message_from_body(chunk) or json.dumps(chunk["error"], ensure_ascii=False)[:300]
+
+
+def _rejects_format(error: ProviderResponseError, *needles: str) -> bool:
+    """Отказ 400 именно из-за формата ответа, а не из-за промпта, лимитов или файла.
+
+    Фолбэк на более простой формат уместен только в этом случае: иначе он лишь
+    маскирует настоящую ошибку вторым запросом и «запоминает» ложный вывод.
+    """
+    if error.upstream_status != 400:
+        return False
+    text = (error.upstream_message or "").lower()
+    return any(needle in text for needle in needles)
 
 
 class OpenAICompatibleClient:
@@ -129,12 +154,7 @@ class OpenAICompatibleClient:
         data: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
     ) -> httpx.Request:
-        if not self.config.api_key:
-            role = self.config.role.upper()
-            raise ProviderConfigurationError(
-                f"{self.config.role}: API key is not set "
-                f"(MODEL_{role}_API_KEY or MODEL_DEFAULT_API_KEY)"
-            )
+        self._require_api_key()
         return self.http.build_request(
             method,
             self.config.base_url + path,
@@ -167,10 +187,21 @@ class OpenAICompatibleClient:
         response = await self._guarded(lambda: self._build("POST", path, **kwargs), stream=True)
         try:
             yield response
+        except httpx.TransportError as error:
+            # Заголовки пришли, а тело оборвалось: для вызывающего это та же
+            # недоступность провайдера, что и обрыв до ответа, и breaker должен
+            # её учесть — иначе «умирающий» провайдер с 200-заголовками никогда
+            # не откроет контур.
+            self.breaker.record_failure()
+            raise ProviderUnavailableError(
+                f"{self.config.role}: {type(error).__name__} while reading stream from {path}"
+            ) from error
         finally:
             await response.aclose()
 
     async def _guarded(self, build: Callable[[], httpx.Request], *, stream: bool) -> httpx.Response:
+        # Без ключа запрос не уйдёт — незачем тратить на него пробный слот breaker.
+        self._require_api_key()
         if not self.breaker.allow():
             raise ProviderUnavailableError(
                 f"{self.config.role}: circuit breaker is open, provider considered down"
@@ -180,8 +211,27 @@ class OpenAICompatibleClient:
         except ProviderUnavailableError:
             self.breaker.record_failure()
             raise
+        except ProviderError:
+            # 4xx — провайдер жив и отвечает, просто отверг запрос: для контура
+            # это успех. Иначе пробный запрос в half_open, упавший на 400/401/404,
+            # не закрывал бы и не открывал контур, а слот оставался бы занят.
+            self.breaker.record_success()
+            raise
+        except BaseException:
+            # Отмена или чужое исключение: о состоянии провайдера ничего не
+            # известно, возвращаем слот пробного запроса.
+            self.breaker.release_probe()
+            raise
         self.breaker.record_success()
         return response
+
+    def _require_api_key(self) -> None:
+        if not self.config.api_key:
+            role = self.config.role.upper()
+            raise ProviderConfigurationError(
+                f"{self.config.role}: API key is not set "
+                f"(MODEL_{role}_API_KEY or MODEL_DEFAULT_API_KEY)"
+            )
 
     async def _send_with_retries(
         self, build: Callable[[], httpx.Request], *, stream: bool
@@ -240,26 +290,34 @@ class OpenAICompatibleClient:
             return ProviderConfigurationError(
                 f"{role}: model or endpoint not found (HTTP 404): {message}"
             )
-        return ProviderResponseError(f"{role}: HTTP {status}: {message}", upstream_status=status)
+        return ProviderResponseError(
+            f"{role}: HTTP {status}: {message}", upstream_status=status, upstream_message=message
+        )
 
 
 async def iter_sse_data(response: httpx.Response) -> AsyncIterator[str]:
-    """Выдать поля ``data`` событий SSE (многострочные данные склеиваются)."""
+    """Выдать поля ``data`` событий SSE (многострочные данные склеиваются).
+
+    Событие с пустыми данными (``data:`` без значения — так некоторые прокси
+    держат соединение) по спецификации SSE не доставляется, поэтому пропускается.
+    """
     buffer: list[str] = []
     async for line in response.aiter_lines():
         line = line.rstrip("\r")
         if line == "":
-            if buffer:
-                yield "\n".join(buffer)
-                buffer = []
+            data = "\n".join(buffer)
+            buffer = []
+            if data.strip():
+                yield data
             continue
         if line.startswith(":"):
             continue
         field, _, value = line.partition(":")
         if field == "data":
             buffer.append(value[1:] if value.startswith(" ") else value)
-    if buffer:
-        yield "\n".join(buffer)
+    data = "\n".join(buffer)
+    if data.strip():
+        yield data
 
 
 def _parse_usage(payload: dict[str, Any] | None) -> Usage | None:
@@ -382,7 +440,7 @@ class OpenAICompatibleLLM(LLMProvider):
             payload = await self.client.request_json("/chat/completions", json_body=body)
         except ProviderResponseError as error:
             wants_schema = body.get("response_format", {}).get("type") == "json_schema"
-            if not (wants_schema and error.upstream_status == 400):
+            if not (wants_schema and _rejects_format(error, "response_format", "json_schema")):
                 raise
             # Агрегатор или модель не знают json_schema — просим просто JSON:
             # схема и так в промпте, а валидирует ответ pydantic.
@@ -418,6 +476,20 @@ class OpenAICompatibleLLM(LLMProvider):
                     raise ProviderResponseError(
                         f"{self.role}: malformed stream chunk: {data[:120]!r}"
                     ) from error
+                if not isinstance(chunk, dict):
+                    raise ProviderResponseError(
+                        f"{self.role}: unexpected stream chunk shape: {data[:120]!r}"
+                    )
+                # Ошибку посреди стрима агрегаторы шлют обычным событием при
+                # статусе 200 (лимит, обрыв у модели); молча оборвать стрим
+                # значило бы отдать пользователю усечённый ответ как полный.
+                error_message = _chunk_error_message(chunk)
+                if error_message is not None:
+                    raise ProviderResponseError(
+                        f"{self.role}: error in stream: {error_message}",
+                        upstream_status=200,
+                        upstream_message=error_message,
+                    )
                 delta = parse_chat_chunk(chunk)
                 if delta is not None:
                     yield delta
@@ -463,6 +535,7 @@ class OpenAICompatibleSTT(STTProvider):
         self.config = config
         self.model = config.model
         self.client = client or OpenAICompatibleClient(config)
+        self._verbose_json_unsupported = False
 
     async def transcribe(
         self,
@@ -483,7 +556,7 @@ class OpenAICompatibleSTT(STTProvider):
         data: dict[str, Any] = {
             "model": self.model,
             "language": language,
-            "response_format": "verbose_json",
+            "response_format": "json" if self._verbose_json_unsupported else "verbose_json",
         }
         if prompt:
             data["prompt"] = prompt
@@ -492,11 +565,14 @@ class OpenAICompatibleSTT(STTProvider):
                 "/audio/transcriptions", data=data, files=files
             )
         except ProviderResponseError as error:
-            if error.upstream_status != 400:
+            wants_verbose = data["response_format"] == "verbose_json"
+            if not (wants_verbose and _rejects_format(error, "response_format", "verbose_json")):
                 raise
             # Не все модели умеют verbose_json (gpt-4o-transcribe отдаёт только
-            # json); таймкоды тогда заменит псевдо-сегмента.
+            # json); таймкоды тогда заменит псевдо-сегмента. Запоминаем, чтобы
+            # не платить лишним запросом за каждый ответ кандидата.
             log.warning("stt: verbose_json rejected by provider, retrying with json")
+            self._verbose_json_unsupported = True
             data["response_format"] = "json"
             payload = await self.client.request_json(
                 "/audio/transcriptions", data=data, files=files
