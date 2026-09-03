@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from leonit.accounts.router import auth_router, invites_router, organization_router
 from leonit.ai.gateway import shutdown_gateway
+from leonit.candidates.router import candidates_router, interviews_router, public_router
 from leonit.core.config import get_settings
 from leonit.core.db import dispose_engine
 from leonit.core.errors import install_error_handlers
@@ -22,7 +23,9 @@ from leonit.core.logging import setup_logging
 from leonit.core.observability import RequestContextMiddleware
 from leonit.core.security_headers import SecurityHeadersMiddleware
 from leonit.health.router import router as health_router
+from leonit.legal.router import router as legal_router
 from leonit.media.router import router as media_router
+from leonit.notifications.router import router as emails_router
 from leonit.vacancies.router import router as vacancies_router
 
 ROUTERS: list[APIRouter] = [
@@ -32,6 +35,11 @@ ROUTERS: list[APIRouter] = [
     organization_router,
     vacancies_router,
     media_router,
+    legal_router,
+    candidates_router,
+    interviews_router,
+    public_router,
+    emails_router,
 ]
 
 

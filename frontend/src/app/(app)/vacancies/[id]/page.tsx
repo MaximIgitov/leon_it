@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
+import { InterviewsTable } from "@/components/candidates/interviews-table";
 import { QuestionsEditor } from "@/components/vacancies/questions-editor";
 import { RubricEditor } from "@/components/vacancies/rubric-editor";
 import { SettingsEditor } from "@/components/vacancies/settings-editor";
@@ -78,7 +79,17 @@ export default function VacancyPage() {
           <TabsTrigger value="rubric">Рубрика ({vacancy.rubric.length})</TabsTrigger>
           <TabsTrigger value="questions">Вопросы ({vacancy.questions.length})</TabsTrigger>
           <TabsTrigger value="settings">Настройки интервью</TabsTrigger>
+          <TabsTrigger value="candidates">Кандидаты</TabsTrigger>
         </TabsList>
+        <TabsContent value="candidates">
+          {vacancy.status === "published" ? (
+            <InterviewsTable vacancyId={vacancy.id} />
+          ) : (
+            <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              Приглашать кандидатов можно после публикации вакансии.
+            </p>
+          )}
+        </TabsContent>
         <TabsContent value="description">
           <VacancyDescriptionEditor
             vacancy={vacancy}

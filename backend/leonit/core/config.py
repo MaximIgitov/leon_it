@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     # /metrics отдаётся только с этим токеном; без него на проде ручка скрыта.
     METRICS_TOKEN: str | None = None
 
+    # --- Кандидатский флоу и письма ------------------------------------------
+    # Контакт оператора в юридических текстах и письмах.
+    SUPPORT_EMAIL: str = "info@napoleonit.ru"
+    # Срок хранения медиа по умолчанию (подставляется в тексты; у организации свой).
+    DEFAULT_RETENTION_DAYS: int = 180
+    # console — письма только в outbox и логи (стенд без SMTP); smtp — реальная отправка.
+    EMAIL_MODE: Literal["console", "smtp"] = "console"
+    EMAIL_FROM: str = "LeonIT <no-reply@leonit.local>"
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_STARTTLS: bool = True
+
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
     # openai_compatible. Так CI и e2e работают без ключей и сети, а стенд с
