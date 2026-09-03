@@ -32,6 +32,42 @@ jobs:
       - name: Тесты
         run: uv run pytest -q
 
+  backend-postgres:
+    name: Backend (PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: leonit_test
+          POSTGRES_USER: leonit
+          POSTGRES_PASSWORD: leonit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U leonit -d leonit_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://leonit:leonit@localhost:5432/leonit_test
+      DATABASE_URL: postgresql+asyncpg://leonit:leonit@localhost:5432/leonit_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Установить зависимости
+        run: uv sync --frozen
+      - name: Миграции на чистой базе
+        run: uv run alembic upgrade head && uv run alembic check
+      - name: Тесты на PostgreSQL
+        run: uv run pytest -q
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

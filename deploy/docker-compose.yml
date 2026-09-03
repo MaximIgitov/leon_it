@@ -51,6 +51,29 @@ services:
         limits:
           memory: 1024M
 
+  worker:
+    # Тот же образ, что и API: фоновые задачи (ffmpeg, транскрибация, оценка,
+    # письма) идут отдельным процессом, чтобы не отнимать CPU у запросов.
+    image: ${BACKEND_IMAGE:-ghcr.io/maximigitov/leon_it/backend}:${IMAGE_TAG:-latest}
+    command: ["python", "-m", "leonit.jobs.worker"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-leonit}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-leonit}
+      MEDIA_ROOT: /data/media
+    volumes:
+      - media:/data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+
   frontend:
     image: ${FRONTEND_IMAGE:-ghcr.io/maximigitov/leon_it/frontend}:${IMAGE_TAG:-latest}
     restart: unless-stopped
