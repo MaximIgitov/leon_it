@@ -1,0 +1,440 @@
+"""Ассистент: треды, инструменты под правами пользователя, стрим, предложения.
+
+Модель — FakeLLM: маркер ``[[call:<tool> <json>]]`` в сообщении пользователя
+превращается в tool-вызов, после выполнения инструмента фейк отвечает текстом.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+
+from httpx import AsyncClient
+
+from leonit.assistant.placeholders import PLACEHOLDERS
+from leonit.assistant.runner import page_context
+from tests.helpers import bearer, create_invite, invite_token_from_url, register
+from tests.test_candidates import _published_vacancy
+from tests.test_reports import _completed_interview
+from tests.test_vacancies import RUBRIC
+
+RUBRIC_VACANCY = {"title": "Python-разработчик", "description": "Бэкенд на FastAPI"}
+
+
+async def _thread(client: AsyncClient, token: str, **payload) -> dict:
+    response = await client.post("/api/assistant/threads", json=payload, headers=bearer(token))
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def _send(client: AsyncClient, token: str, thread_id: str, content: str, **extra) -> dict:
+    response = await client.post(
+        f"/api/assistant/threads/{thread_id}/messages",
+        json={"content": content, **extra},
+        headers=bearer(token),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _actions(result: dict) -> list[dict]:
+    return result["assistant_message"]["actions"]
+
+
+async def _stream_events(client: AsyncClient, token: str, thread_id: str, content: str) -> list:
+    events: list[tuple[str, dict]] = []
+    async with client.stream(
+        "POST",
+        f"/api/assistant/threads/{thread_id}/messages/stream",
+        json={"content": content},
+        headers=bearer(token),
+    ) as response:
+        assert response.status_code == 200, await response.aread()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-accel-buffering"] == "no"
+        current: str | None = None
+        async for line in response.aiter_lines():
+            if line.startswith("event: "):
+                current = line[len("event: ") :]
+            elif line.startswith("data: ") and current:
+                events.append((current, json.loads(line[len("data: ") :])))
+                current = None
+    return events
+
+
+# ------------------------------------------------------------------ треды
+
+
+async def test_thread_created_and_placeholders_follow_role(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner, page_path="/vacancies")
+    assert thread["title"] == "" and thread["page_path"] == "/vacancies"
+    listed = (await client.get("/api/assistant/threads", headers=bearer(owner))).json()
+    assert [t["id"] for t in listed] == [thread["id"]]
+
+    placeholders = (await client.get("/api/assistant/placeholders", headers=bearer(owner))).json()
+    assert placeholders["role"] == "owner"
+    assert "Проверь настройки моделей" in placeholders["items"]
+    assert placeholders["items"] == list(PLACEHOLDERS["owner"])
+
+    invite = await create_invite(client, owner, role="hiring_manager", vacancy_scope=[])
+    _, manager = await register(client, invite_token=invite_token_from_url(invite["url"]))
+    manager_placeholders = (
+        await client.get("/api/assistant/placeholders", headers=bearer(manager))
+    ).json()
+    assert manager_placeholders["role"] == "hiring_manager"
+    assert manager_placeholders["items"] == list(PLACEHOLDERS["hiring_manager"])
+    assert set(manager_placeholders["items"]).isdisjoint(placeholders["items"])
+
+
+async def test_foreign_thread_is_not_found(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner)
+    _, stranger = await register(client, organization_name="Чужая")
+    for method, path in (
+        ("GET", f"/api/assistant/threads/{thread['id']}"),
+        ("GET", f"/api/assistant/threads/{thread['id']}/messages"),
+        ("DELETE", f"/api/assistant/threads/{thread['id']}"),
+    ):
+        response = await client.request(method, path, headers=bearer(stranger))
+        assert response.status_code == 404, (method, path, response.text)
+    response = await client.post(
+        f"/api/assistant/threads/{thread['id']}/messages",
+        json={"content": "Привет"},
+        headers=bearer(stranger),
+    )
+    assert response.status_code == 404
+    unknown = await client.get(f"/api/assistant/threads/{uuid.uuid4()}", headers=bearer(owner))
+    assert unknown.status_code == 404
+
+
+async def test_archived_thread_leaves_list_and_rejects_messages(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner)
+    archived = await client.delete(f"/api/assistant/threads/{thread['id']}", headers=bearer(owner))
+    assert archived.status_code == 204
+    assert (await client.get("/api/assistant/threads", headers=bearer(owner))).json() == []
+    response = await client.post(
+        f"/api/assistant/threads/{thread['id']}/messages",
+        json={"content": "Привет"},
+        headers=bearer(owner),
+    )
+    assert response.status_code == 409
+
+
+# ------------------------------------------------------------ инструменты
+
+
+async def test_marker_runs_tool_and_history_is_saved(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    vacancy = (
+        await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))
+    ).json()
+    thread = await _thread(client, owner)
+
+    result = await _send(
+        client,
+        owner,
+        thread["id"],
+        "Покажи вакансии [[call:list_vacancies {}]]",
+        page_path="/vacancies",
+    )
+    assert result["thread"]["title"].startswith("Покажи вакансии")
+    assert result["user_message"]["role"] == "user"
+    actions = _actions(result)
+    assert len(actions) == 1
+    assert actions[0]["kind"] == "done" and actions[0]["tool"] == "list_vacancies"
+    assert [row["id"] for row in actions[0]["result"]] == [vacancy["id"]]
+    assert result["assistant_message"]["content"].startswith("[fake assistant]")
+
+    history = (
+        await client.get(f"/api/assistant/threads/{thread['id']}/messages", headers=bearer(owner))
+    ).json()
+    assert [m["role"] for m in history] == ["user", "tool", "assistant"]
+    assert history[1]["actions"][0]["tool"] == "list_vacancies"
+    assert "tool_call_id" not in history[1]["actions"][0]
+
+    # Второй ход в том же треде: история не ломает цикл, оба инструмента выполняются.
+    second = await _send(
+        client, owner, thread["id"], "[[call:list_vacancies {}]] [[call:list_candidates {}]]"
+    )
+    assert [a["tool"] for a in _actions(second)] == ["list_vacancies", "list_candidates"]
+    history = (
+        await client.get(f"/api/assistant/threads/{thread['id']}/messages", headers=bearer(owner))
+    ).json()
+    assert [m["role"] for m in history] == [
+        "user",
+        "tool",
+        "assistant",
+        "user",
+        "tool",
+        "tool",
+        "assistant",
+    ]
+
+
+async def test_create_vacancy_tool_creates_draft(client: AsyncClient) -> None:
+    _, recruiter_owner = await register(client)
+    thread = await _thread(client, recruiter_owner)
+    payload = {"title": "Go-разработчик", "skills": ["Go", "gRPC"], "level": "senior"}
+    result = await _send(
+        client, recruiter_owner, thread["id"], f"[[call:create_vacancy {json.dumps(payload)}]]"
+    )
+    action = _actions(result)[0]
+    assert action["kind"] == "done"
+    assert action["params"] == {
+        "title": "Go-разработчик",
+        "description": "",
+        "requirements": "",
+        "skills": ["Go", "gRPC"],
+        "level": "senior",
+    }
+    vacancies = (await client.get("/api/vacancies", headers=bearer(recruiter_owner))).json()
+    assert [(v["title"], v["status"], v["skills"]) for v in vacancies] == [
+        ("Go-разработчик", "draft", ["Go", "gRPC"])
+    ]
+    assert action["result"]["id"] == vacancies[0]["id"]
+
+
+async def test_generate_questions_saves_draft_then_proposes(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    vacancy = (
+        await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))
+    ).json()
+    await client.patch(
+        f"/api/vacancies/{vacancy['id']}", json={"rubric": RUBRIC}, headers=bearer(owner)
+    )
+    thread = await _thread(client, owner)
+    marker = f'[[call:generate_questions {{"vacancy_id": "{vacancy["id"]}", "count": 3}}]]'
+
+    first = _actions(await _send(client, owner, thread["id"], marker))[0]
+    assert first["kind"] == "done", first
+    saved = (await client.get(f"/api/vacancies/{vacancy['id']}", headers=bearer(owner))).json()
+    assert saved["question_count"] == len(first["result"]["questions"]) > 0
+    # Фейк придумывает несуществующие компетенции — они отфильтрованы по рубрике.
+    assert all(q["competency_ids"] == [] for q in saved["questions"])
+
+    second = _actions(await _send(client, owner, thread["id"], marker))[0]
+    assert second["kind"] == "proposed"
+    assert second["proposal"]["action"] == "replace_questions"
+    proposed = second["proposal"]["params"]["questions"]
+    assert len(proposed) == saved["question_count"] + len(second["result"]["questions"])
+    assert proposed[0]["id"] == saved["questions"][0]["id"]
+    again = (await client.get(f"/api/vacancies/{vacancy['id']}", headers=bearer(owner))).json()
+    assert again["question_count"] == saved["question_count"]
+
+
+async def test_invite_candidate_is_only_a_proposal(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    vacancy = await _published_vacancy(client, owner)
+    thread = await _thread(client, owner, page_path=f"/vacancies/{vacancy['id']}")
+    args = {"vacancy_id": vacancy["id"], "full_name": "Анна Иванова", "email": "Anna@Example.com"}
+    result = await _send(
+        client, owner, thread["id"], f"[[call:invite_candidate {json.dumps(args)}]]"
+    )
+    action = _actions(result)[0]
+    assert action["kind"] == "proposed"
+    assert action["proposal"]["action"] == "invite"
+    assert action["proposal"]["params"] == {
+        "vacancy_id": vacancy["id"],
+        "full_name": "Анна Иванова",
+        "email": "anna@example.com",
+        "send_email": True,
+    }
+    interviews = (
+        await client.get(f"/api/interviews?vacancy_id={vacancy['id']}", headers=bearer(owner))
+    ).json()
+    assert interviews == []
+    assert (await client.get("/api/candidates", headers=bearer(owner))).json() == []
+
+    draft = (await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))).json()
+    args["vacancy_id"] = draft["id"]
+    denied = _actions(
+        await _send(client, owner, thread["id"], f"[[call:invite_candidate {json.dumps(args)}]]")
+    )[0]
+    assert denied["kind"] == "error" and "опубликованной" in denied["summary"]
+
+
+async def test_publish_and_decide_are_proposals(client: AsyncClient) -> None:
+    owner, interview, _ = await _completed_interview(client)
+    thread = await _thread(client, owner)
+    decide = _actions(
+        await _send(
+            client,
+            owner,
+            thread["id"],
+            "[[call:decide_candidate "
+            + json.dumps({"interview_id": interview["id"], "decision": "advance"})
+            + "]]",
+        )
+    )[0]
+    assert decide["kind"] == "proposed" and decide["proposal"]["action"] == "decide"
+    current = (await client.get(f"/api/interviews/{interview['id']}", headers=bearer(owner))).json()
+    assert current["decision"] is None
+
+    draft = (await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))).json()
+    await client.put(
+        f"/api/vacancies/{draft['id']}/questions",
+        json={"questions": [{"text": "Вопрос"}]},
+        headers=bearer(owner),
+    )
+    publish = _actions(
+        await _send(
+            client,
+            owner,
+            thread["id"],
+            f'[[call:publish_vacancy {{"vacancy_id": "{draft["id"]}"}}]]',
+        )
+    )[0]
+    assert publish["kind"] == "proposed" and publish["proposal"]["action"] == "publish"
+    assert (await client.get(f"/api/vacancies/{draft['id']}", headers=bearer(owner))).json()[
+        "status"
+    ] == "draft"
+
+
+async def test_vacancy_summary_and_ranking_without_evaluation_module(client: AsyncClient) -> None:
+    owner, interview, _ = await _completed_interview(client)
+    thread = await _thread(client, owner)
+    summary = _actions(
+        await _send(
+            client,
+            owner,
+            thread["id"],
+            f'[[call:vacancy_summary {{"vacancy_id": "{interview["vacancy_id"]}"}}]]',
+        )
+    )[0]
+    assert summary["kind"] == "done", summary
+    data = summary["result"]
+    assert data["funnel"] == {"completed": 1}
+    assert data["finished"] == 1 and data["evaluated"] == 0 and data["average_fit"] is None
+    assert [row["interview_id"] for row in data["top"]] == [interview["id"]]
+
+    ranking = _actions(
+        await _send(
+            client,
+            owner,
+            thread["id"],
+            f'[[call:ranking {{"vacancy_id": "{interview["vacancy_id"]}"}}]]',
+        )
+    )[0]
+    assert ranking["result"]["rows"][0]["rank"] == 1
+    assert ranking["result"]["rows"][0]["fit_score"] is None
+
+
+async def test_hiring_manager_sees_only_scope_and_cannot_create(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    allowed = (
+        await client.post("/api/vacancies", json={"title": "Разрешённая"}, headers=bearer(owner))
+    ).json()
+    hidden = (
+        await client.post("/api/vacancies", json={"title": "Скрытая"}, headers=bearer(owner))
+    ).json()
+    invite = await create_invite(
+        client, owner, role="hiring_manager", vacancy_scope=[allowed["id"]]
+    )
+    _, manager = await register(client, invite_token=invite_token_from_url(invite["url"]))
+    thread = await _thread(client, manager, page_path=f"/vacancies/{hidden['id']}")
+
+    listed = _actions(await _send(client, manager, thread["id"], "[[call:list_vacancies {}]]"))[0]
+    assert listed["kind"] == "done"
+    assert [row["id"] for row in listed["result"]] == [allowed["id"]]
+
+    peek = _actions(
+        await _send(
+            client,
+            manager,
+            thread["id"],
+            f'[[call:get_vacancy {{"vacancy_id": "{hidden["id"]}"}}]]',
+        )
+    )[0]
+    assert peek["kind"] == "error"
+
+    create = await _send(client, manager, thread["id"], '[[call:create_vacancy {"title": "Моя"}]]')
+    action = _actions(create)[0]
+    assert action["kind"] == "error" and "недоступен" in action["summary"]
+    assert create["assistant_message"]["content"]
+    titles = [
+        v["title"] for v in (await client.get("/api/vacancies", headers=bearer(owner))).json()
+    ]
+    assert "Моя" not in titles
+
+    # Менеджер без единой допущенной вакансии видит пустой список, а не чужие.
+    empty_invite = await create_invite(client, owner, role="hiring_manager", vacancy_scope=[])
+    _, lonely = await register(client, invite_token=invite_token_from_url(empty_invite["url"]))
+    lonely_thread = await _thread(client, lonely)
+    nothing = _actions(
+        await _send(client, lonely, lonely_thread["id"], "[[call:list_vacancies {}]]")
+    )[0]
+    assert nothing["kind"] == "done" and nothing["result"] == []
+
+
+async def test_unknown_tool_and_bad_arguments_do_not_break_the_turn(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner)
+    unknown = _actions(await _send(client, owner, thread["id"], "[[call:teleport {}]]"))[0]
+    assert unknown["kind"] == "error" and "Неизвестный" in unknown["summary"]
+    bad_id = _actions(
+        await _send(
+            client, owner, thread["id"], '[[call:get_vacancy {"vacancy_id": "not-a-uuid"}]]'
+        )
+    )[0]
+    assert bad_id["kind"] == "error" and "идентификатор" in bad_id["summary"]
+    missing = _actions(await _send(client, owner, thread["id"], "[[call:get_vacancy {}]]"))[0]
+    assert missing["kind"] == "error" and "аргументы" in missing["summary"].lower()
+
+
+# ------------------------------------------------------------------ стрим
+
+
+async def test_stream_emits_tokens_actions_and_done(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner)
+
+    plain = await _stream_events(client, owner, thread["id"], "Привет")
+    types = [name for name, _ in plain]
+    assert types[0] == "user" and types[-1] == "done"
+    assert types.count("token") == 3  # фейк режет ответ на три куска
+    text = "".join(data["text"] for name, data in plain if name == "token")
+    done = plain[-1][1]
+    assert text == done["message"]["content"] == "[fake assistant] Привет"
+    assert done["thread"]["title"] == "Привет"
+
+    with_tool = await _stream_events(client, owner, thread["id"], "[[call:list_vacancies {}]]")
+    types = [name for name, _ in with_tool]
+    assert "action" in types and types[-1] == "done"
+    assert types.index("action") < types.index("token")
+    action = next(data for name, data in with_tool if name == "action")
+    assert action["tool"] == "list_vacancies" and action["kind"] == "done"
+
+    history = (
+        await client.get(f"/api/assistant/threads/{thread['id']}/messages", headers=bearer(owner))
+    ).json()
+    assert [m["role"] for m in history] == ["user", "assistant", "user", "tool", "assistant"]
+
+
+async def test_stream_checks_access_before_starting(client: AsyncClient) -> None:
+    _, owner = await register(client)
+    thread = await _thread(client, owner)
+    _, stranger = await register(client, organization_name="Чужая")
+    response = await client.post(
+        f"/api/assistant/threads/{thread['id']}/messages/stream",
+        json={"content": "Привет"},
+        headers=bearer(stranger),
+    )
+    assert response.status_code == 404
+
+
+# --------------------------------------------------------------- контекст
+
+
+def test_page_context_extracts_ids() -> None:
+    vacancy_id, interview_id = str(uuid.uuid4()), str(uuid.uuid4())
+    assert page_context(f"/vacancies/{vacancy_id}") == f"открыта вакансия с id {vacancy_id}"
+    assert page_context(f"/vacancies/{vacancy_id}/interviews/{interview_id}?tab=notes") == (
+        f"открыт отчёт по интервью с id {interview_id} (вакансия с id {vacancy_id})"
+    )
+    assert page_context(f"/candidates/{vacancy_id}") == f"открыт кандидат с id {vacancy_id}"
+    assert page_context("/vacancies") == "открыт список вакансий"
+    assert page_context(None) is None
+    assert page_context("/settings") == "открыта страница /settings"
