@@ -98,6 +98,19 @@ class Settings(BaseSettings):
     # брошенным (воркер убит без graceful stop) и берётся в обработку заново.
     PIPELINE_STALE_PROCESSING_S: int = Field(default=1800, ge=60)
 
+    # --- HH.ru (см. leonit.hh) ------------------------------------------------
+    # Без ключей интеграция работает в fake-режиме на фикстурах; real включается
+    # по наличию HH_CLIENT_ID и HH_CLIENT_SECRET (или явно через HH_MODE).
+    HH_MODE: Literal["auto", "fake", "real"] = "auto"
+    HH_CLIENT_ID: str | None = None
+    HH_CLIENT_SECRET: str | None = None
+    # None — PUBLIC_URL + API_PREFIX + /integrations/hh/callback (см. hh_redirect_url).
+    HH_REDIRECT_URL: str | None = None
+    HH_API_BASE: str = "https://api.hh.ru"
+    HH_OAUTH_BASE: str = "https://hh.ru"
+    HH_USER_AGENT: str = "LeonIT/1.0 (info@napoleonit.ru)"
+    HH_SYNC_INTERVAL_MINUTES: int = Field(default=10, ge=1, le=1440)
+
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
     # openai_compatible. Так CI и e2e работают без ключей и сети, а стенд с
@@ -167,6 +180,17 @@ class Settings(BaseSettings):
 
     def model_role_api_key(self, role: str) -> str | None:
         return self.model_role_value(role, "API_KEY") or self.MODEL_DEFAULT_API_KEY
+
+    @property
+    def effective_hh_mode(self) -> Literal["fake", "real"]:
+        if self.HH_MODE != "auto":
+            return self.HH_MODE
+        return "real" if self.HH_CLIENT_ID and self.HH_CLIENT_SECRET else "fake"
+
+    @property
+    def hh_redirect_url(self) -> str:
+        default = f"{self.PUBLIC_URL}{self.API_PREFIX}/integrations/hh/callback"
+        return self.HH_REDIRECT_URL or default
 
     @property
     def effective_model_provider(self) -> ModelProvider:
