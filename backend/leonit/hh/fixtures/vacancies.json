@@ -1,0 +1,98 @@
+[
+  {
+    "id": "hh-v-1001",
+    "name": "Python-разработчик (Backend)",
+    "alternate_url": "https://hh.ru/vacancy/1001",
+    "area": {
+      "name": "Москва"
+    },
+    "salary": {
+      "from": 250000,
+      "to": 350000,
+      "currency": "RUR",
+      "gross": false
+    },
+    "published_at": "2026-08-25T09:00:00+03:00",
+    "key_skills": [
+      {
+        "name": "Python"
+      },
+      {
+        "name": "FastAPI"
+      },
+      {
+        "name": "PostgreSQL"
+      },
+      {
+        "name": "Docker"
+      },
+      {
+        "name": "asyncio"
+      }
+    ],
+    "description": "<p>Мы делаем платформу асинхронных видеоинтервью с ИИ-оценкой кандидатов. Ищем backend-разработчика в команду продукта.</p><p><strong>Обязанности:</strong></p><ul><li>развивать API на FastAPI и SQLAlchemy;</li><li>проектировать фоновые пайплайны обработки медиа;</li><li>писать тесты и участвовать в код-ревью.</li></ul><p><strong>Требования:</strong></p><ul><li>опыт коммерческой разработки на Python от 3 лет;</li><li>уверенное знание asyncio, PostgreSQL, Docker;</li><li>понимание REST и принципов чистой архитектуры;</li><li>опыт работы с очередями задач.</li></ul><p><strong>Будет плюсом:</strong></p><ul><li>опыт интеграции с LLM-провайдерами;</li><li>знание ffmpeg.</li></ul><p><strong>Условия:</strong></p><ul><li>удалёнка или офис в Москве;</li><li>ДМС, обучение, конференции.</li></ul>"
+  },
+  {
+    "id": "hh-v-1002",
+    "name": "Frontend-разработчик (React / Next.js)",
+    "alternate_url": "https://hh.ru/vacancy/1002",
+    "area": {
+      "name": "Санкт-Петербург"
+    },
+    "salary": {
+      "from": 200000,
+      "to": null,
+      "currency": "RUR",
+      "gross": true
+    },
+    "published_at": "2026-08-27T11:30:00+03:00",
+    "key_skills": [
+      {
+        "name": "TypeScript"
+      },
+      {
+        "name": "React"
+      },
+      {
+        "name": "Next.js"
+      },
+      {
+        "name": "Tailwind CSS"
+      }
+    ],
+    "description": "<p>Кабинет рекрутера, комната интервью для кандидата и лендинг — всё на Next.js. Нужен frontend-разработчик, который любит аккуратный UI.</p><p><strong>Что нужно делать:</strong></p><ul><li>разрабатывать интерфейсы на React и Next.js (App Router);</li><li>работать с MediaRecorder и WebRTC-API браузера;</li><li>поддерживать дизайн-систему на Tailwind и shadcn/ui.</li></ul><p><strong>Мы ожидаем:</strong></p><ul><li>3+ года с React, уверенный TypeScript;</li><li>опыт с Next.js 13+ и серверными компонентами;</li><li>внимание к доступности и производительности.</li></ul><p><strong>Условия:</strong></p><ul><li>гибрид в Санкт-Петербурге;</li><li>оплата обучения и техники.</li></ul>"
+  },
+  {
+    "id": "hh-v-1003",
+    "name": "Data Scientist (NLP / LLM)",
+    "alternate_url": "https://hh.ru/vacancy/1003",
+    "area": {
+      "name": "Казань"
+    },
+    "salary": {
+      "from": 300000,
+      "to": 400000,
+      "currency": "RUR",
+      "gross": false
+    },
+    "published_at": "2026-08-30T10:00:00+03:00",
+    "key_skills": [
+      {
+        "name": "Python"
+      },
+      {
+        "name": "PyTorch"
+      },
+      {
+        "name": "NLP"
+      },
+      {
+        "name": "LLM"
+      },
+      {
+        "name": "SQL"
+      }
+    ],
+    "description": "<p>Оценка кандидатов по транскриптам интервью: рубрики, structured output, eval-контур. Ищем DS с фокусом на NLP и LLM.</p><p><strong>Задачи:</strong></p><ul><li>проектировать промпты и схемы структурированных заключений;</li><li>строить eval-датасеты и метрики согласия с экспертами;</li><li>исследовать устойчивость моделей к инъекциям в ответах.</li></ul><p><strong>Требования:</strong></p><ul><li>опыт в NLP от 2 лет, знание PyTorch;</li><li>опыт работы с LLM API и оценкой качества генерации;</li><li>SQL и базовая инженерная культура.</li></ul><p><strong>Условия:</strong></p><ul><li>удалённо из любого города РФ;</li><li>бюджет на GPU и конференции.</li></ul>"
+  }
+]

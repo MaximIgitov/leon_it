@@ -59,6 +59,8 @@ _RECRUITER_ACTIONS = frozenset(
         "dashboard.read",
         "assistant.use",
         "integrations.read",
+        # Синхронизация, импорт вакансий и настройка диалогов интеграций (HH).
+        "integrations.operate",
     }
 )
 _OWNER_ACTIONS = _RECRUITER_ACTIONS | frozenset(

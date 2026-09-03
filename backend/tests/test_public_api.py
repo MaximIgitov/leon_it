@@ -478,6 +478,10 @@ async def test_scalar_page_and_openapi_security(client: AsyncClient) -> None:
     assert "/api/docs/api" not in spec["paths"]
     # В описаниях и примерах нет ничего похожего на настоящий токен.
     assert not re.search(r"leonit_[A-Za-z0-9_-]{20,}", json.dumps(spec, ensure_ascii=False))
+    # Имена схем не должны коллизировать между модулями: FastAPI разводит их
+    # длинными «leonit__<модуль>__schemas__Имя», а такие имена и в документации
+    # выглядят мусором, и похожи на секреты.
+    assert [name for name in spec["components"]["schemas"] if "__" in name] == []
 
 
 async def test_docs_page_can_be_disabled() -> None:

@@ -17,6 +17,7 @@ from leonit.huntflow.schemas import (
     HuntflowAccountOut,
     HuntflowStatusOut,
     HuntflowVacanciesOut,
+    HuntflowVacancyLinkOut,
     HuntflowVacancyOut,
     ImportResult,
     JobBrief,
@@ -24,7 +25,6 @@ from leonit.huntflow.schemas import (
     PushIn,
     PushStatusOut,
     SelectAccountIn,
-    VacancyLinkOut,
 )
 from leonit.huntflow.service import HuntflowService, demo_available
 from leonit.jobs.models import Job
@@ -78,8 +78,8 @@ async def _connection_out(
     )
 
 
-def link_out(link: HuntflowVacancyLink, vacancy: Vacancy) -> VacancyLinkOut:
-    return VacancyLinkOut(
+def link_out(link: HuntflowVacancyLink, vacancy: Vacancy) -> HuntflowVacancyLinkOut:
+    return HuntflowVacancyLinkOut(
         vacancy_id=str(vacancy.id),
         vacancy_title=vacancy.title,
         vacancy_status=vacancy.status.value,
@@ -96,7 +96,7 @@ def _status_out(item: HuntflowStatus) -> HuntflowStatusOut:
     return HuntflowStatusOut(id=item.id, name=item.name, type=item.type, order=item.order)
 
 
-def _vacancy_out(item: HuntflowVacancy, links: list[VacancyLinkOut]) -> HuntflowVacancyOut:
+def _vacancy_out(item: HuntflowVacancy, links: list[HuntflowVacancyLinkOut]) -> HuntflowVacancyOut:
     return HuntflowVacancyOut(
         id=item.id, position=item.position, state=item.state, company=item.company, links=links
     )
@@ -178,7 +178,7 @@ async def list_vacancies(
     actor: CurrentActor, session: DbSession, settings: SettingsDep
 ) -> HuntflowVacanciesOut:
     vacancies, statuses, links = await HuntflowService(session, settings).list_vacancies(actor)
-    by_remote: dict[int, list[VacancyLinkOut]] = {}
+    by_remote: dict[int, list[HuntflowVacancyLinkOut]] = {}
     for link, vacancy in links:
         by_remote.setdefault(link.huntflow_vacancy_id, []).append(link_out(link, vacancy))
     return HuntflowVacanciesOut(
@@ -187,21 +187,21 @@ async def list_vacancies(
     )
 
 
-@router.get("/links", response_model=list[VacancyLinkOut])
+@router.get("/links", response_model=list[HuntflowVacancyLinkOut])
 async def list_links(
     actor: CurrentActor, session: DbSession, settings: SettingsDep
-) -> list[VacancyLinkOut]:
+) -> list[HuntflowVacancyLinkOut]:
     return [link_out(link, v) for link, v in await HuntflowService(session, settings).links(actor)]
 
 
-@router.put("/links/{vacancy_id}", response_model=VacancyLinkOut)
+@router.put("/links/{vacancy_id}", response_model=HuntflowVacancyLinkOut)
 async def link_vacancy(
     vacancy_id: UUID,
     payload: LinkIn,
     actor: CurrentActor,
     session: DbSession,
     settings: SettingsDep,
-) -> VacancyLinkOut:
+) -> HuntflowVacancyLinkOut:
     link, vacancy = await HuntflowService(session, settings).link_vacancy(
         actor, vacancy_id, payload
     )

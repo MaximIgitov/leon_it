@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
+import { HhDialogCard } from "@/components/integrations/hh-dialog";
 import { HuntflowPush } from "@/components/integrations/huntflow-push";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +92,7 @@ export default function CandidatePage() {
             {candidate.notes ? <p className="whitespace-pre-wrap">{candidate.notes}</p> : null}
           </CardContent>
         </Card>
+        <HhDialogCard candidateId={candidate.id} />
       </div>
     </>
   );

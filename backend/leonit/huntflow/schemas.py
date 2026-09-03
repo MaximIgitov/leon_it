@@ -59,7 +59,7 @@ class HuntflowStatusOut(BaseModel):
     order: int = 0
 
 
-class VacancyLinkOut(BaseModel):
+class HuntflowVacancyLinkOut(BaseModel):
     vacancy_id: str
     vacancy_title: str
     vacancy_status: str
@@ -76,7 +76,7 @@ class HuntflowVacancyOut(BaseModel):
     position: str
     state: str | None = None
     company: str | None = None
-    links: list[VacancyLinkOut] = Field(default_factory=list)
+    links: list[HuntflowVacancyLinkOut] = Field(default_factory=list)
 
 
 class HuntflowVacanciesOut(BaseModel):

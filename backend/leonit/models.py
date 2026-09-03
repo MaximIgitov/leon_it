@@ -19,6 +19,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "leonit.assistant.models",
     "leonit.api_tokens.models",
     "leonit.evaluation.models",
+    "leonit.hh.models",
     "leonit.huntflow.models",
 )
 
