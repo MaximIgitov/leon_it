@@ -33,12 +33,28 @@ class SlidingWindowRateLimiter:
             self._evict_if_needed()
             bucket = deque()
             self._attempts[key] = bucket
+        decision = self._decide(bucket, now)
+        if decision.allowed:
+            bucket.append(now)
+        return decision
+
+    def peek(self, key: str) -> RateDecision:
+        """Решить, не исчерпан ли лимит для ``key``, не засчитывая попытку.
+
+        Нужен там, где считаются только неудачи: сначала смотрим, не заблокирован
+        ли ключ, а ``check`` вызываем лишь после провала.
+        """
+        bucket = self._attempts.get(key)
+        if bucket is None:
+            return RateDecision(allowed=True)
+        return self._decide(bucket, monotonic())
+
+    def _decide(self, bucket: deque[float], now: float) -> RateDecision:
         while bucket and now - bucket[0] > self.window_s:
             bucket.popleft()
         if len(bucket) >= self.max_attempts:
             retry_after = int(self.window_s - (now - bucket[0])) + 1
             return RateDecision(allowed=False, retry_after_s=max(retry_after, 1))
-        bucket.append(now)
         return RateDecision(allowed=True)
 
     def reset(self, key: str) -> None:

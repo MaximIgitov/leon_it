@@ -26,6 +26,11 @@ class Actor:
     user: User
     membership: Membership
     organization: Organization
+    # Публичный API: у токена нет роли — набор действий выводится из его областей
+    # (``leonit.api_tokens.scopes``) и целиком подменяет матрицу роли. Так токен с
+    # областью «только вакансии» не получает чтение кандидатов «в нагрузку», как
+    # получил бы при маппинге областей на ближайшую роль.
+    actions: frozenset[str] | None = None
 
     @property
     def role(self) -> MembershipRole:
@@ -34,6 +39,10 @@ class Actor:
     @property
     def organization_id(self) -> UUID:
         return self.organization.id
+
+    @property
+    def is_api(self) -> bool:
+        return self.actions is not None
 
 
 # Что разрешено каждой роли. Владелец умеет всё, что рекрутер, плюс управление.
@@ -87,7 +96,11 @@ _ROLE_ACTIONS = {
 
 
 def can(actor: Actor, action: str, *, vacancy_id: UUID | str | None = None) -> bool:
-    allowed = _ROLE_ACTIONS.get(actor.role.value, frozenset())
+    allowed = (
+        actor.actions
+        if actor.actions is not None
+        else _ROLE_ACTIONS.get(actor.role.value, frozenset())
+    )
     if action not in allowed:
         return False
     scope = actor.membership.vacancy_scope

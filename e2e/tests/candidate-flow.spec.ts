@@ -1,6 +1,29 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { getInterview, seedInterview } from "./api";
+
+/**
+ * Экран проверки устройств: фейковая камера Chromium обычно доступна сразу, но
+ * второй контекст браузера иногда не получает поток с первой попытки — тогда
+ * комната показывает «Камера или микрофон не найдены» и кнопку «Проверить снова».
+ * Повторяем проверку, прежде чем считать прогон упавшим.
+ */
+async function passDeviceCheck(page: Page): Promise<void> {
+  await expect(page.getByRole("heading", { name: "Проверка камеры и микрофона" })).toBeVisible();
+  const record = page.getByRole("button", { name: /Записать 5 секунд/ });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (await record.isVisible().catch(() => false)) break;
+    const retry = page.getByRole("button", { name: "Проверить снова" });
+    if (await retry.isVisible().catch(() => false)) {
+      await retry.click();
+    }
+    await page.waitForTimeout(1500);
+  }
+  await record.click();
+  await expect(page.getByText("Меня видно и слышно")).toBeVisible({ timeout: 20_000 });
+  await page.getByText("Меня видно и слышно").click();
+  await page.getByRole("button", { name: /Всё готово — к интервью/ }).click();
+}
 
 /*
  * Сквозной сценарий кандидата: ссылка → согласия → проверка устройств →
@@ -22,12 +45,8 @@ test("кандидат проходит интервью от ссылки до 
   await checkboxes.nth(1).click();
   await page.getByRole("button", { name: "Продолжить" }).click();
 
-  // Проверка устройств: фейковая камера уже даёт поток; пробная запись 5 с.
-  await expect(page.getByRole("heading", { name: "Проверка камеры и микрофона" })).toBeVisible();
-  await page.getByRole("button", { name: /Записать 5 секунд/ }).click();
-  await expect(page.getByText("Меня видно и слышно")).toBeVisible({ timeout: 20_000 });
-  await page.getByText("Меня видно и слышно").click();
-  await page.getByRole("button", { name: /Всё готово — к интервью/ }).click();
+  // Проверка устройств: фейковая камера даёт поток; пробная запись 5 с.
+  await passDeviceCheck(page);
 
   // Тренировочный вопрос можно пропустить.
   await page.getByRole("button", { name: "Пропустить" }).click();
@@ -60,9 +79,7 @@ test("рекрутер видит ответы кандидата в карто�
   await checkboxes.nth(0).click();
   await checkboxes.nth(1).click();
   await page.getByRole("button", { name: "Продолжить" }).click();
-  await page.getByRole("button", { name: /Записать 5 секунд/ }).click();
-  await page.getByText("Меня видно и слышно").click({ timeout: 20_000 });
-  await page.getByRole("button", { name: /Всё готово — к интервью/ }).click();
+  await passDeviceCheck(page);
   await page.getByRole("button", { name: "Пропустить" }).click();
   await page.getByRole("button", { name: "Показать вопрос" }).click();
   await expect(page.getByRole("button", { name: "Завершить ответ" })).toBeVisible({ timeout: 15_000 });

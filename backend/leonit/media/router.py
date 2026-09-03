@@ -92,7 +92,11 @@ def _content_disposition(filename: str | None, content_type: str) -> str:
     return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
-@router.api_route("/media/{token}", methods=["GET", "HEAD"])
+# HEAD обслуживается тем же обработчиком, но в схему не попадает: FastAPI дал бы
+# обеим операциям один operation_id и предупреждал о дубле, а плееру HEAD нужен
+# только для размера файла.
+@router.api_route("/media/{token}", methods=["HEAD"], include_in_schema=False)
+@router.get("/media/{token}")
 async def get_media(token: str, request: Request) -> Response:
     claims = verify_media_token(token)
     storage = get_storage()

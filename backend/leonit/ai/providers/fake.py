@@ -151,6 +151,30 @@ def _last_user_text(messages: list[Message]) -> str:
     return ""
 
 
+def _pending_tool_call(messages: list[Message]) -> tuple[str, str] | None:
+    """Какой маркер ``[[call:...]]`` из последнего сообщения пользователя ещё не выполнен.
+
+    Агентный цикл после каждого вызова добавляет в диалог сообщение с ролью
+    ``tool``; считаем их после последнего сообщения пользователя и отдаём
+    следующий по счёту маркер. Когда все маркеры выполнены — возвращаем None, и
+    фейк отвечает текстом: иначе цикл никогда не завершился бы.
+    """
+    executed = 0
+    user_text = ""
+    for message in reversed(messages):
+        role = message.get("role")
+        if role == "user":
+            user_text = _message_text(message)
+            break
+        if role == "tool":
+            executed += 1
+    markers = list(_TOOL_CALL_RE.finditer(user_text))
+    if executed >= len(markers):
+        return None
+    match = markers[executed]
+    return match.group(1), match.group(2) or "{}"
+
+
 def _usage(prompt: str, completion: str) -> Usage:
     prompt_tokens, completion_tokens = len(prompt) // 4, len(completion) // 4
     return Usage(prompt_tokens, completion_tokens, prompt_tokens + completion_tokens)
@@ -176,11 +200,11 @@ class FakeLLM(LLMProvider):
         raw: dict[str, Any] = {"provider": "fake", "model": self.model, "role": self.role}
 
         if tools:
-            match = _TOOL_CALL_RE.search(user_text)
-            if match:
-                arguments = match.group(2) or "{}"
+            pending = _pending_tool_call(messages)
+            if pending:
+                name, arguments = pending
                 json.loads(arguments)  # заранее ловим кривой JSON в тесте, а не в обработчике
-                call = ToolCall(id="call_fake_1", name=match.group(1), arguments=arguments)
+                call = ToolCall(id="call_fake_1", name=name, arguments=arguments)
                 raw["tool_calls"] = [{"id": call.id, "name": call.name, "arguments": arguments}]
                 return LLMResponse(
                     content=None,
