@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     MODEL_TTS_PROXY_URL: str | None = None
     MODEL_TTS_TIMEOUT_S: float | None = None
 
+    # --- Оценка интервью ------------------------------------------------------
+    # Пороги рекомендации по fit_score (0..100): ≥ FIT — «подходит»,
+    # < NO_FIT — «не подходит», между ними — «нужна проверка».
+    EVAL_FIT_THRESHOLD: float = 70
+    EVAL_NO_FIT_THRESHOLD: float = 45
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
@@ -155,6 +161,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODEL_PROVIDER=fake is not allowed in production "
                 "(set MODEL_*_API_KEY or MODEL_ALLOW_FAKE_IN_PRODUCTION=true)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _eval_thresholds_are_ordered(self) -> Settings:
+        if not 0 <= self.EVAL_NO_FIT_THRESHOLD < self.EVAL_FIT_THRESHOLD <= 100:
+            raise ValueError(
+                "EVAL_NO_FIT_THRESHOLD must be lower than EVAL_FIT_THRESHOLD, both within 0..100"
             )
         return self
 
