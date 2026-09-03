@@ -1,0 +1,10 @@
+.env
+.env.local
+.git/
+.github/
+.next/
+node_modules/
+npm-debug.log*
+tsconfig.tsbuildinfo
+tests/
+supabase/

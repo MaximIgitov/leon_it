@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Шрифты самохостятся из npm-пакетов @fontsource: ни сборка, ни браузер не
+       ходят в Google Fonts. Manrope — гарнитура сайта Napoleon IT. */
+    --font-sans: "Manrope Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Светлая тема: белый фон, чернильный текст, электрик-синий акцент. */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 7%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 7%;
+
+    --primary: 243 92% 49%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 14% 96%;
+    --secondary-foreground: 0 0% 7%;
+
+    --muted: 240 14% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 243 92% 95%;
+    --accent-foreground: 243 80% 30%;
+
+    --destructive: 356 93% 57%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 7%;
+
+    --border: 240 8% 89%;
+    --input: 240 8% 85%;
+    --ring: 243 92% 49%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 240 8% 7%;
+    --foreground: 240 10% 93%;
+
+    --card: 240 8% 10%;
+    --card-foreground: 240 10% 93%;
+
+    --popover: 240 8% 10%;
+    --popover-foreground: 240 10% 93%;
+
+    --primary: 243 100% 74%;
+    --primary-foreground: 243 80% 12%;
+
+    --secondary: 240 6% 15%;
+    --secondary-foreground: 240 10% 93%;
+
+    --muted: 240 6% 15%;
+    --muted-foreground: 240 6% 64%;
+
+    --accent: 243 50% 20%;
+    --accent-foreground: 243 100% 88%;
+
+    --destructive: 356 90% 66%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 48%;
+    --success-foreground: 0 0% 7%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 0 0% 7%;
+
+    --border: 240 6% 18%;
+    --input: 240 6% 22%;
+    --ring: 243 100% 74%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+  }
+  body:has(.app-shell) {
+    overflow: hidden;
+  }
+  /* 100vh на мобильных прячет низ интерфейса за панелью браузера;
+     dvh учитывает реальную видимую область. */
+  .app-shell {
+    height: 100vh;
+  }
+  @supports (height: 100dvh) {
+    .app-shell {
+      height: 100dvh;
+    }
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-sans);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Тонкий скроллбар для панелей с длинным содержимым (транскрипты, чаты). */
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 3px;
+}
+
+/* Печать отчётов: убираем оболочку кабинета и принудительно светлая тема. */
+@media print {
+  :root {
+    color-scheme: light !important;
+  }
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}
