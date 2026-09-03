@@ -44,12 +44,29 @@ _CONTENT_TYPES: dict[str, str] = {
 }
 
 
+# Что браузеру можно показывать прямо в окне. Всё остальное отдаётся как
+# attachment: Content-Type в токене задаёт тот, кто подписывает ссылку, а файл
+# загрузил кандидат — «резюме» в виде text/html, открытое inline на нашем
+# origin, было бы stored-XSS. SVG исключён из image/*: это документ со скриптами.
+_INLINE_TYPE_PREFIXES = ("audio/", "video/", "image/")
+_INLINE_TYPES = frozenset({"application/pdf"})
+_INLINE_DENIED = frozenset({"image/svg+xml"})
+
+
 @dataclass(frozen=True, slots=True)
 class MediaClaims:
     key: str
     content_type: str | None
     filename: str | None
     expires_at: int
+
+
+def is_inline_safe(content_type: str) -> bool:
+    """Можно ли отдавать файл этого типа с ``Content-Disposition: inline``."""
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type in _INLINE_DENIED:
+        return False
+    return media_type in _INLINE_TYPES or media_type.startswith(_INLINE_TYPE_PREFIXES)
 
 
 def guess_content_type(key: str) -> str:
@@ -88,7 +105,14 @@ def sign_media_url(
 def verify_media_token(token: str, *, settings: Settings | None = None) -> MediaClaims:
     settings = settings or get_settings()
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        # Без exp ссылка жила бы вечно, а бессрочный доступ к файлу кандидата —
+        # ровно то, от чего подписанные ссылки защищают.
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"require_exp": True},
+        )
     except ExpiredSignatureError as error:
         raise PermissionDeniedError("media link has expired") from error
     except JWTError as error:

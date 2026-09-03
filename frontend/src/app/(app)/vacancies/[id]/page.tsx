@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { InterviewsTable } from "@/components/candidates/interviews-table";
+import { RankingTable } from "@/components/reports/ranking-table";
 import { QuestionsEditor } from "@/components/vacancies/questions-editor";
 import { RubricEditor } from "@/components/vacancies/rubric-editor";
 import { SettingsEditor } from "@/components/vacancies/settings-editor";
@@ -80,7 +81,11 @@ export default function VacancyPage() {
           <TabsTrigger value="questions">Вопросы ({vacancy.questions.length})</TabsTrigger>
           <TabsTrigger value="settings">Настройки интервью</TabsTrigger>
           <TabsTrigger value="candidates">Кандидаты</TabsTrigger>
+          <TabsTrigger value="ranking">Рейтинг</TabsTrigger>
         </TabsList>
+        <TabsContent value="ranking">
+          <RankingTable vacancyId={vacancy.id} />
+        </TabsContent>
         <TabsContent value="candidates">
           {vacancy.status === "published" ? (
             <InterviewsTable vacancyId={vacancy.id} />

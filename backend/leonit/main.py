@@ -29,6 +29,8 @@ from leonit.interviews.router import staff_router as interview_staff_router
 from leonit.legal.router import router as legal_router
 from leonit.media.router import router as media_router
 from leonit.notifications.router import router as emails_router
+from leonit.reports.router import public_router as public_reports_router
+from leonit.reports.router import router as reports_router
 from leonit.vacancies.router import router as vacancies_router
 
 ROUTERS: list[APIRouter] = [
@@ -45,6 +47,8 @@ ROUTERS: list[APIRouter] = [
     room_router,
     interview_staff_router,
     evaluation_router,
+    reports_router,
+    public_reports_router,
     emails_router,
 ]
 

@@ -17,11 +17,14 @@ from fastapi.responses import StreamingResponse
 
 from leonit.core.errors import NotFoundError
 from leonit.core.storage import get_storage
-from leonit.media.service import guess_content_type, verify_media_token
+from leonit.media.service import guess_content_type, is_inline_safe, verify_media_token
 
 router = APIRouter(tags=["media"])
 
 _MAX_CACHE_S = 3600
+# Медиа-ответ — чужой файл на нашем origin: sandbox лишает его скриптов, форм и
+# доступа к origin, даже если браузер решит отрисовать его как документ.
+_MEDIA_CSP = "sandbox"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +46,9 @@ def parse_range(header: str | None, size: int) -> ByteRange | None:
 
     Несколько диапазонов (multipart/byteranges) браузеры для видео не
     запрашивают; такой заголовок игнорируем и отдаём файл целиком, как
-    разрешает RFC 9110.
+    разрешает RFC 9110. Синтаксически неверный диапазон (``bytes=5-2``, конец
+    раньше начала) по тому же RFC не ошибка, а отсутствие заголовка — тоже 200.
+    ``RangeNotSatisfiable`` — только для корректного диапазона за концом файла.
     """
     if not header:
         return None
@@ -65,16 +70,26 @@ def parse_range(header: str | None, size: int) -> ByteRange | None:
         end = int(last) if last != "" else size - 1
     except ValueError:
         return None
-    if start >= size or start < 0:
+    # Явный конец раньше начала — синтаксически неверный диапазон (игнорируем);
+    # отсутствующий конец значит «до конца файла» и за начало не отвечает.
+    if start < 0 or (last != "" and end < start):
+        return None
+    if start >= size:
         raise RangeNotSatisfiable
-    return ByteRange(start, min(end, size - 1))
+    byte_range = ByteRange(start, min(end, size - 1))
+    # Длина проверяется до того, как из диапазона соберут заголовки: отрицательный
+    # Content-Length уходит клиенту раньше, чем упадёт отдача тела.
+    if byte_range.length <= 0:
+        raise RangeNotSatisfiable
+    return byte_range
 
 
-def _content_disposition(filename: str | None) -> str:
+def _content_disposition(filename: str | None, content_type: str) -> str:
+    disposition = "inline" if is_inline_safe(content_type) else "attachment"
     if not filename:
-        return "inline"
+        return disposition
     ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
-    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
 @router.api_route("/media/{token}", methods=["GET", "HEAD"])
@@ -87,10 +102,12 @@ async def get_media(token: str, request: Request) -> Response:
 
     # Ссылка и так живёт недолго; кэш в пределах её срока ускоряет перемотку.
     max_age = max(min(claims.expires_at - int(time.time()), _MAX_CACHE_S), 0)
+    content_type = claims.content_type or guess_content_type(claims.key)
     headers = {
         "Accept-Ranges": "bytes",
-        "Content-Type": claims.content_type or guess_content_type(claims.key),
-        "Content-Disposition": _content_disposition(claims.filename),
+        "Content-Type": content_type,
+        "Content-Disposition": _content_disposition(claims.filename, content_type),
+        "Content-Security-Policy": _MEDIA_CSP,
         "Cache-Control": f"private, max-age={max_age}",
     }
     try:
@@ -98,7 +115,11 @@ async def get_media(token: str, request: Request) -> Response:
     except RangeNotSatisfiable:
         return Response(
             status_code=416,
-            headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+            headers={
+                "Content-Range": f"bytes */{size}",
+                "Accept-Ranges": "bytes",
+                "Content-Security-Policy": _MEDIA_CSP,
+            },
         )
 
     if byte_range is None:
