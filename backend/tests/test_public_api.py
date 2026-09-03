@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -9,15 +10,19 @@ from datetime import timedelta
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 
-from leonit.api_tokens.deps import api_rate_limiter
+from leonit.api_tokens.deps import api_auth_failure_limiter, api_rate_limiter
 from leonit.api_tokens.models import ApiToken
 from leonit.api_tokens.scopes import SCOPES, actions_for
 from leonit.core.config import get_settings
 from leonit.core.db import get_session_maker
 from leonit.core.time import utcnow
+from leonit.evaluation.jobs import process_interview
 from leonit.main import create_app
+from leonit.public_api.docs import SCALAR_CDN_URL, SCALAR_SRI, SCALAR_VERSION
 from tests.helpers import bearer, create_invite, invite_token_from_url, register
 from tests.test_candidates import _published_vacancy
+from tests.test_evaluation import _completed_interview as _rubric_interview
+from tests.test_evaluation import _ctx, _finish_answers
 from tests.test_reports import _completed_interview
 
 ALL_SCOPES = list(SCOPES)
@@ -97,6 +102,8 @@ def test_token_actions_follow_scopes_exactly() -> None:
     assert actions_for(["vacancies:read"]) == {"vacancy.read"}
     assert "candidate.read" not in actions_for(["vacancies:read", "reports:read"])
     assert {"candidate.write", "interview.read"} <= actions_for(["candidates:write"])
+    # media:read — модификатор отчёта, а не самостоятельный доступ.
+    assert actions_for(["media:read"]) == frozenset()
     assert actions_for([]) == frozenset()
 
 
@@ -208,7 +215,7 @@ async def test_report_media_links_require_media_scope(client: AsyncClient) -> No
     assert all(a["media_url"] is None for a in data["answers"])
     assert data["answers"][0]["question_text"] == "Расскажите о себе"
     assert data["interview"]["status"] == "completed"
-    assert data["evaluation"] is None  # модуль оценки ещё не подключён
+    assert data["evaluation"] is None  # заключения по интервью ещё нет
 
     with_media = bearer((await _token(client, owner, ["reports:read", "media:read"]))["token"])
     data = (await client.get(url, headers=with_media)).json()
@@ -234,12 +241,14 @@ async def test_report_media_links_require_media_scope(client: AsyncClient) -> No
 
 
 async def test_revoked_expired_and_unknown_tokens_are_401(client: AsyncClient) -> None:
-    _, owner = await register(client)
+    owner_email, owner = await register(client)
     created = await _token(client, owner, ["vacancies:read"])
     revoked = await client.delete(
         f"/api/organization/api-tokens/{created['id']}", headers=bearer(owner)
     )
     assert revoked.status_code == 200 and revoked.json()["status"] == "revoked"
+    # Ответ на отзыв — та же карточка, что в списке: автор токена на месте.
+    assert revoked.json()["created_by_email"] == owner_email
     denied = await client.get("/api/v1/vacancies", headers=bearer(created["token"]))
     assert denied.status_code == 401
 
@@ -326,6 +335,81 @@ async def test_rate_limit_is_per_token(client: AsyncClient, monkeypatch) -> None
     assert (await client.get("/api/v1/vacancies", headers=other)).status_code == 200
 
 
+async def test_failed_auth_attempts_are_limited_per_address(
+    client: AsyncClient, monkeypatch
+) -> None:
+    _, owner = await register(client)
+    api = bearer((await _token(client, owner, ["vacancies:read"]))["token"])
+    monkeypatch.setattr(api_auth_failure_limiter, "max_attempts", 3)
+    # Успешные запросы в счётчик неудач не попадают.
+    for _ in range(5):
+        assert (await client.get("/api/v1/vacancies", headers=api)).status_code == 200
+    for digit in "012":
+        unknown = bearer("leonit_" + digit * 43)
+        assert (await client.get("/api/v1/vacancies", headers=unknown)).status_code == 401
+    limited = await client.get("/api/v1/vacancies", headers=bearer("leonit_" + "z" * 43))
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) >= 1
+    # Адрес блокируется до поиска токена в базе — настоящий токен с него тоже ждёт.
+    assert (await client.get("/api/v1/vacancies", headers=api)).status_code == 429
+    api_auth_failure_limiter.clear()
+    assert (await client.get("/api/v1/vacancies", headers=api)).status_code == 200
+
+
+# --------------------------------------------------------------------- оценка
+
+
+async def test_evaluated_interview_exposes_scores_and_ranking(client: AsyncClient) -> None:
+    owner, interview, vacancy, _ = await _rubric_interview(client)
+    api = bearer(
+        (await _token(client, owner, ["interviews:read", "reports:read", "candidates:write"]))[
+            "token"
+        ]
+    )
+    url = f"/api/v1/interviews/{interview['id']}"
+    before = (await client.get(url, headers=api)).json()
+    assert before["status"] == "completed"
+    assert before["fit_score"] is None and before["recommendation"] is None
+
+    # Медиа-пайплайн проставил транскрипты → задача оценки отработала целиком.
+    await _finish_answers(interview["id"])
+    result = await process_interview({"interview_id": interview["id"]}, _ctx())
+    assert result["status"] == "done" and result["fit_score"] is not None
+
+    single = (await client.get(url, headers=api)).json()
+    assert single["status"] == "evaluated" and single["evaluated_at"] is not None
+    assert single["fit_score"] == result["fit_score"]
+    assert single["recommendation"] == result["recommendation"]
+
+    report = (await client.get(f"{url}/report", headers=api)).json()
+    assert report["interview"]["fit_score"] == result["fit_score"]
+    assert report["evaluation"]["status"] == "done"
+    assert report["evaluation"]["fit_score"] == result["fit_score"]
+    assert report["evaluation"]["recommendation"] == result["recommendation"]
+    assert report["evaluation"]["output"]["summary"]
+
+    # Ранжирование — то же, что в кабинете (evaluation.service.ranking): оценённые
+    # по баллу, ещё не оценённые (в том числе только приглашённые) — в конце.
+    invited = await client.post(
+        "/api/v1/interviews",
+        json={"vacancy_id": vacancy["id"], "full_name": "Ольга", "email": "olga@example.com"},
+        headers=api,
+    )
+    assert invited.status_code == 201, invited.text
+    ranking_url = f"/api/v1/vacancies/{vacancy['id']}/ranking"
+    rows = (await client.get(ranking_url, headers=api)).json()
+    assert [r["position"] for r in rows] == [1, 2]
+    assert rows[0]["interview_id"] == interview["id"]
+    assert rows[0]["fit_score"] == result["fit_score"]
+    assert rows[0]["recommendation"] == result["recommendation"]
+    assert rows[0]["evaluated_at"] is not None
+    assert rows[1]["interview_id"] == invited.json()["id"] and rows[1]["fit_score"] is None
+    cabinet = (
+        await client.get(f"/api/vacancies/{vacancy['id']}/ranking", headers=bearer(owner))
+    ).json()
+    assert [r["interview_id"] for r in cabinet] == [r["interview_id"] for r in rows]
+
+
 # ---------------------------------------------------------------- документация
 
 
@@ -333,8 +417,32 @@ async def test_scalar_page_and_openapi_security(client: AsyncClient) -> None:
     page = await client.get("/api/docs/api")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
-    assert 'src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"' in page.text
+    # Версия бандла зафиксирована, тег несёт SRI и crossorigin.
+    assert re.fullmatch(r"\d+\.\d+\.\d+", SCALAR_VERSION)
+    assert (
+        "https://cdn.jsdelivr.net/npm/@scalar/api-reference"
+        f"@{SCALAR_VERSION}/dist/browser/standalone.js"
+    ) == SCALAR_CDN_URL
+    assert re.fullmatch(r"sha384-[A-Za-z0-9+/]{64}", SCALAR_SRI)
+    assert (
+        f'<script src="{SCALAR_CDN_URL}" integrity="{SCALAR_SRI}" crossorigin="anonymous">'
+        in page.text
+    )
     assert "/api/openapi.json" in page.text
+    # CSP: скрипты — только CDN и наш инлайн по хешу, без 'unsafe-inline' в script-src.
+    csp = page.headers["content-security-policy"]
+    directives = dict(directive.split(" ", 1) for directive in csp.split("; "))
+    assert directives["default-src"] == "'none'"
+    assert directives["connect-src"] == "'self'"
+    assert directives["style-src"] == "'self' 'unsafe-inline'"
+    assert directives["img-src"] == "data: https:"
+    assert directives["font-src"] == "https: data:"
+    assert directives["frame-ancestors"] == "'none'"
+    inline = re.search(r"<script>(.*?)</script>", page.text, re.S).group(1)  # type: ignore[union-attr]
+    digest = base64.b64encode(hashlib.sha256(inline.encode("utf-8")).digest()).decode()
+    assert directives["script-src"] == f"https://cdn.jsdelivr.net 'sha256-{digest}'"
+    # Запросы «попробовать» уходят на этот же сервер, а не через прокси Scalar.
+    assert "proxyUrl: ''" in inline
 
     spec = (await client.get("/api/openapi.json")).json()
     scheme = spec["components"]["securitySchemes"]["ApiToken"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from datetime import timedelta
 from uuid import UUID
 
@@ -37,6 +38,15 @@ from leonit.vacancies.models import Vacancy, VacancyStatus
 
 def interview_link(token: str) -> str:
     return f"{get_settings().PUBLIC_URL}/i/{token}"
+
+
+async def vacancy_titles(session: AsyncSession, interviews: Iterable[Interview]) -> dict[UUID, str]:
+    """Названия вакансий для набора интервью одним запросом (списки кабинета и API)."""
+    ids = {interview.vacancy_id for interview in interviews}
+    if not ids:
+        return {}
+    rows = await session.execute(select(Vacancy.id, Vacancy.title).where(Vacancy.id.in_(ids)))
+    return {vacancy_id: title for vacancy_id, title in rows.all()}
 
 
 def estimated_minutes(vacancy: Vacancy) -> int:

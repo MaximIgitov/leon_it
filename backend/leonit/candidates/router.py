@@ -25,6 +25,7 @@ from leonit.candidates.service import (
     InterviewService,
     estimated_minutes,
     interview_link,
+    vacancy_titles,
 )
 from leonit.core.deps import DbSession
 from leonit.core.rate_limit import SlidingWindowRateLimiter
@@ -88,16 +89,6 @@ def interview_out(
         question_count=len(interview.question_snapshot) if interview.question_snapshot else None,
         link=link,
     )
-
-
-async def _vacancy_titles(session, interviews: list[Interview]) -> dict[UUID, str]:
-    ids = {interview.vacancy_id for interview in interviews}
-    if not ids:
-        return {}
-    from sqlalchemy import select
-
-    rows = await session.execute(select(Vacancy.id, Vacancy.title).where(Vacancy.id.in_(ids)))
-    return {vacancy_id: title for vacancy_id, title in rows.all()}
 
 
 # ------------------------------------------------------------------ candidates
@@ -170,7 +161,7 @@ async def candidate_interviews(
     candidate_id: UUID, actor: CurrentActor, session: DbSession
 ) -> list[InterviewOut]:
     interviews = await InterviewService(session).list(actor, candidate_id=candidate_id)
-    titles = await _vacancy_titles(session, interviews)
+    titles = await vacancy_titles(session, interviews)
     return [interview_out(i, titles.get(i.vacancy_id, "")) for i in interviews]
 
 
@@ -184,14 +175,14 @@ async def list_interviews(
     vacancy_id: UUID | None = None,
 ) -> list[InterviewOut]:
     interviews = await InterviewService(session).list(actor, vacancy_id=vacancy_id)
-    titles = await _vacancy_titles(session, interviews)
+    titles = await vacancy_titles(session, interviews)
     return [interview_out(i, titles.get(i.vacancy_id, "")) for i in interviews]
 
 
 @interviews_router.post("", response_model=InterviewOut, status_code=status.HTTP_201_CREATED)
 async def invite(payload: InviteRequest, actor: CurrentActor, session: DbSession) -> InterviewOut:
     interview, token = await InterviewService(session).invite(actor, payload)
-    titles = await _vacancy_titles(session, [interview])
+    titles = await vacancy_titles(session, [interview])
     return interview_out(interview, titles.get(interview.vacancy_id, ""), interview_link(token))
 
 
@@ -200,7 +191,7 @@ async def get_interview(
     interview_id: UUID, actor: CurrentActor, session: DbSession
 ) -> InterviewOut:
     interview = await InterviewService(session).get(actor, interview_id)
-    titles = await _vacancy_titles(session, [interview])
+    titles = await vacancy_titles(session, [interview])
     return interview_out(interview, titles.get(interview.vacancy_id, ""))
 
 
@@ -209,7 +200,7 @@ async def resend_invitation(
     interview_id: UUID, actor: CurrentActor, session: DbSession
 ) -> InterviewOut:
     interview, token = await InterviewService(session).resend(actor, interview_id)
-    titles = await _vacancy_titles(session, [interview])
+    titles = await vacancy_titles(session, [interview])
     return interview_out(interview, titles.get(interview.vacancy_id, ""), interview_link(token))
 
 
@@ -218,7 +209,7 @@ async def cancel_interview(
     interview_id: UUID, actor: CurrentActor, session: DbSession
 ) -> InterviewOut:
     interview = await InterviewService(session).cancel(actor, interview_id)
-    titles = await _vacancy_titles(session, [interview])
+    titles = await vacancy_titles(session, [interview])
     return interview_out(interview, titles.get(interview.vacancy_id, ""))
 
 

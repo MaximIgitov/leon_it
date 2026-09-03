@@ -107,7 +107,8 @@ class ApiTokenService:
         )
         return [(token, email) for token, email in rows.all()]
 
-    async def revoke(self, actor: Actor, token_id: UUID) -> ApiToken:
+    async def revoke(self, actor: Actor, token_id: UUID) -> tuple[ApiToken, str | None]:
+        """Отозвать токен; возвращает его вместе с e-mail автора — как в списке."""
         authorize(actor, "api_tokens.manage")
         token = await self.session.get(ApiToken, token_id)
         if token is None or token.organization_id != actor.organization_id:
@@ -123,7 +124,14 @@ class ApiTokenService:
                 name=token.name,
             )
             await self.session.commit()
-        return token
+        return token, await self._creator_email(token)
+
+    async def _creator_email(self, token: ApiToken) -> str | None:
+        if token.created_by_user_id is None:
+            return None
+        return await self.session.scalar(
+            select(User.email).where(User.id == token.created_by_user_id)
+        )
 
     # ---------------------------------------------------------- аутентификация
 

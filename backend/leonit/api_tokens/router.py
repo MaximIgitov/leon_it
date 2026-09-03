@@ -28,5 +28,5 @@ async def create_api_token(
 
 @router.delete("/{token_id}", response_model=ApiTokenOut)
 async def revoke_api_token(token_id: UUID, actor: CurrentActor, session: DbSession) -> ApiTokenOut:
-    token = await ApiTokenService(session).revoke(actor, token_id)
-    return token_out(token)
+    token, created_by_email = await ApiTokenService(session).revoke(actor, token_id)
+    return token_out(token, created_by_email)

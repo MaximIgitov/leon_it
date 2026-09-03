@@ -21,8 +21,9 @@ TOKEN_DISPLAY_LENGTH = 12
 # Область → действия authorize. Запись подразумевает чтение того же ресурса;
 # приглашение на интервью возвращает интервью, поэтому candidates:write включает
 # interview.read; отчёт строится поверх интервью — reports:read тоже.
-# media:read не добавляет действий: ссылки на медиа входят в отчёт, область
-# лишь разрешает выдавать их интеграции.
+# media:read действий не добавляет: сам отчёт открывает reports:read (ручка
+# проверяет именно её), а media:read лишь разрешает выдавать в нём подписанные
+# ссылки на медиа. Токен с одной media:read не откроет ничего.
 SCOPE_ACTIONS: dict[str, frozenset[str]] = {
     "vacancies:read": frozenset({"vacancy.read"}),
     "vacancies:write": frozenset({"vacancy.read", "vacancy.write"}),
@@ -30,7 +31,7 @@ SCOPE_ACTIONS: dict[str, frozenset[str]] = {
     "candidates:write": frozenset({"candidate.read", "candidate.write", "interview.read"}),
     "interviews:read": frozenset({"interview.read"}),
     "reports:read": frozenset({"interview.read", "report.read"}),
-    "media:read": frozenset({"report.read"}),
+    "media:read": frozenset(),
 }
 
 SCOPES: tuple[str, ...] = tuple(SCOPE_ACTIONS)

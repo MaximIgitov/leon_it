@@ -1,8 +1,9 @@
 """Публичный API поверх сервисов кабинета.
 
-Здесь нет бизнес-логики: сервисы вакансий, кандидатов и отчётов получают
+Здесь нет бизнес-логики: сервисы вакансий, кандидатов, отчётов и оценки получают
 ``ApiActor`` как обычного участника, а этот слой только переводит доменные
-объекты в схемы v1.
+объекты и схемы кабинета в схемы v1. Ранжирование и баллы — те же, что видит
+рекрутер: единственный источник — ``leonit.evaluation``.
 """
 
 from __future__ import annotations
@@ -10,15 +11,19 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from leonit.candidates.models import CandidateSource, Interview
-from leonit.candidates.router import candidate_out
+from leonit.candidates.models import Candidate, CandidateSource, Interview
+from leonit.candidates.router import candidate_out, interview_out
 from leonit.candidates.schemas import CandidateCreate, InviteRequest
-from leonit.candidates.service import CandidateService, InterviewService, interview_link
+from leonit.candidates.service import (
+    CandidateService,
+    InterviewService,
+    interview_link,
+    vacancy_titles,
+)
 from leonit.core.authz import Actor
-from leonit.core.time import aware
+from leonit.evaluation.service import ranking as evaluation_ranking
 from leonit.public_api.schemas import (
     ApiCandidate,
     ApiEvaluation,
@@ -44,8 +49,20 @@ def api_vacancy_detail(vacancy: Vacancy) -> ApiVacancyDetail:
     return ApiVacancyDetail(**vacancy_detail_out(vacancy).model_dump())
 
 
-def api_candidate(candidate) -> ApiCandidate:
+def api_candidate(candidate: Candidate) -> ApiCandidate:
     return ApiCandidate(**candidate_out(candidate).model_dump())
+
+
+def _scores(evaluation: dict[str, Any] | None) -> tuple[float | None, str | None]:
+    """Балл и рекомендация — только из готового заключения.
+
+    Строка ``evaluations`` существует и в статусах ``pending`` / ``failed``
+    (например, после «Переобработать»); интеграции результат показывается лишь
+    когда он есть — как в ранжировании кабинета.
+    """
+    if not evaluation or evaluation.get("status") != "done":
+        return None, None
+    return evaluation.get("fit_score"), evaluation.get("recommendation")
 
 
 def api_interview(
@@ -55,28 +72,13 @@ def api_interview(
     *,
     link: str | None = None,
 ) -> ApiInterview:
-    evaluation = evaluation or {}
+    fit_score, recommendation = _scores(evaluation)
+    # Та же карточка, что в кабинете, плюс итог оценки; поля, которых нет в v1
+    # (например, current_question_index), схема отбрасывает.
     return ApiInterview(
-        id=str(interview.id),
-        status=interview.status.value,  # type: ignore[arg-type]
-        vacancy_id=str(interview.vacancy_id),
-        vacancy_title=vacancy_title,
-        candidate_id=str(interview.candidate_id),
-        candidate_name=interview.consent_full_name or interview.candidate.full_name,
-        candidate_email=interview.candidate.email,
-        invited_at=aware(interview.invited_at),  # type: ignore[arg-type]
-        expires_at=aware(interview.expires_at),  # type: ignore[arg-type]
-        opened_at=aware(interview.opened_at),
-        consented_at=aware(interview.consented_at),
-        started_at=aware(interview.started_at),
-        completed_at=aware(interview.completed_at),
-        evaluated_at=aware(interview.evaluated_at),
-        decided_at=aware(interview.decided_at),
-        decision=interview.decision,  # type: ignore[arg-type]
-        question_count=len(interview.question_snapshot) if interview.question_snapshot else None,
-        fit_score=evaluation.get("fit_score"),
-        recommendation=evaluation.get("recommendation"),
-        link=link,
+        **interview_out(interview, vacancy_title, link).model_dump(),
+        fit_score=fit_score,
+        recommendation=recommendation,  # type: ignore[arg-type]
     )
 
 
@@ -110,19 +112,10 @@ class PublicApiService:
 
     # ------------------------------------------------------------- interviews
 
-    async def _titles(self, interviews: list[Interview]) -> dict[UUID, str]:
-        ids = {interview.vacancy_id for interview in interviews}
-        if not ids:
-            return {}
-        rows = await self.session.execute(
-            select(Vacancy.id, Vacancy.title).where(Vacancy.id.in_(ids))
-        )
-        return {vacancy_id: title for vacancy_id, title in rows.all()}
-
     async def _interviews(
         self, interviews: list[Interview], *, links: dict[UUID, str] | None = None
     ) -> list[ApiInterview]:
-        titles = await self._titles(interviews)
+        titles = await vacancy_titles(self.session, interviews)
         evaluations = await self.reports.evaluation_payloads([i.id for i in interviews])
         return [
             api_interview(
@@ -177,5 +170,8 @@ class PublicApiService:
         )
 
     async def ranking(self, actor: Actor, vacancy_id: UUID) -> list[ApiRankingRow]:
-        rows = await self.reports.ranking(actor, vacancy_id)
-        return [ApiRankingRow(position=index + 1, **row) for index, row in enumerate(rows)]
+        """Тот же порядок, что в кабинете (`GET /vacancies/{id}/ranking`), плюс позиция."""
+        rows = await evaluation_ranking(self.session, actor, vacancy_id)
+        return [
+            ApiRankingRow(position=index + 1, **row.model_dump()) for index, row in enumerate(rows)
+        ]

@@ -152,9 +152,23 @@ await service.enqueue(
 Версионированные ручки `/api/v1/*` для интеграций (ATS, HR-боты, скрипты):
 вакансии (список, карточка, черновик), кандидаты (список, создание),
 интервью (приглашение со ссылкой, список, статус), отчёт и ранжирование по
-вакансии. Интерактивная документация — `GET /api/docs/api` (Scalar с CDN
-поверх `/api/openapi.json`); она работает и на проде, где Swagger кабинета
-выключен. Отключается через `PUBLIC_API_DOCS_ENABLED=false`.
+вакансии. Слой `public_api/` не содержит бизнес-логики: он вызывает сервисы
+кабинета (`VacancyService`, `CandidateService`, `InterviewService`,
+`ReportService.report`, `evaluation.service.ranking`) и переводит их ответы в
+схемы v1. Карточка интервью строится из той же `interview_out`, что в кабинете;
+`fit_score` / `recommendation` берутся только из готового (`done`) заключения
+`evaluations`, а ранжирование в API — ровно то, что видит рекрутер.
+
+**Документация.** `GET /api/docs/api` — Scalar поверх `/api/openapi.json`; она
+работает и на проде, где Swagger кабинета выключен, отключается через
+`PUBLIC_API_DOCS_ENABLED=false`. Страница живёт на одном origin с кабинетом
+(JWT в localStorage), поэтому бандл Scalar подключается с CDN с зафиксированной
+версией (`SCALAR_VERSION` в `public_api/docs.py`) и `integrity` + `crossorigin`
+(SRI), а ответ несёт `Content-Security-Policy`: `default-src 'none'`, скрипты —
+только `cdn.jsdelivr.net` и инлайн-инициализация по sha256-хешу, `connect-src
+'self'` (запросы «попробовать» идут на этот же сервер, `proxyUrl` пустой),
+шрифты Scalar — `font-src https:`. При обновлении версии пересчитайте хеш:
+`curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`.
 
 **Токены.** Выпускает владелец организации (`api_tokens.manage`) через
 `POST /organization/api-tokens`; список — `GET`, отзыв — `DELETE /{id}`.
@@ -167,16 +181,21 @@ await service.enqueue(
 `candidates:write`, `interviews:read`, `reports:read`, `media:read`. Таблица
 `SCOPE_ACTIONS` (`api_tokens/scopes.py`) переводит области в действия
 `authorize`: ручка проверяет область (`require_scope`), сервис — действие.
-Область не может быть шире прав создателя токена. `media:read` открывает в
-отчёте подписанные ссылки на видео; без неё `media_url` — `null`.
+Область не может быть шире прав создателя токена. `media:read` действий не
+добавляет: отчёт открывает `reports:read`, а `media:read` лишь разрешает выдавать
+в нём подписанные ссылки на видео; без неё `media_url` — `null`.
 
-**Аутентификация.** `Authorization: Bearer leonit_…` → `ApiActor`
+**Аутентификация и лимиты.** `Authorization: Bearer leonit_…` → `ApiActor`
 (`api_tokens/deps.py`) — тот же `Actor`, что у сотрудника, но с набором
 действий из областей (`Actor.actions`), поэтому сервисы кабинета
 переиспользуются без изменений; в `created_by` пишется автор токена.
 Отозванный, просроченный или неизвестный токен — `401`, нехватка области —
-`403`, лимит 600 запросов в минуту на токен — `429` с `Retry-After`.
-`last_used_at` обновляется не чаще раза в минуту.
+`403`. Лимиты — `429` с `Retry-After`: 600 запросов в минуту на токен и, ещё до
+поиска токена в базе, 30 неудачных попыток аутентификации за 5 минут на адрес
+(`api_auth_failure_limiter`) — перебор несуществующих или отозванных `leonit_…`
+не нагружает базу. Оба лимитера, как и `login_rate_limiter`, живут в памяти
+процесса: при нескольких воркерах или репликах лимит действует на каждый
+процесс отдельно. `last_used_at` обновляется не чаще раза в минуту.
 
 ```bash
 curl https://<стенд>/api/v1/vacancies?status=published \

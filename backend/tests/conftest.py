@@ -69,7 +69,7 @@ def _reset_rate_limiters():
         preview_rate_limiter,
         register_rate_limiter,
     )
-    from leonit.api_tokens.deps import api_rate_limiter
+    from leonit.api_tokens.deps import api_auth_failure_limiter, api_rate_limiter
     from leonit.candidates.router import public_rate_limiter
 
     limiters = (
@@ -78,6 +78,7 @@ def _reset_rate_limiters():
         preview_rate_limiter,
         public_rate_limiter,
         api_rate_limiter,
+        api_auth_failure_limiter,
     )
     for limiter in limiters:
         limiter.clear()
