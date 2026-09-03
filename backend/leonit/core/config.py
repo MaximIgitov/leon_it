@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # /metrics отдаётся только с этим токеном; без него на проде ручка скрыта.
     METRICS_TOKEN: str | None = None
 
+    # Ключ Fernet для секретов интеграций в БД (см. core.crypto); вторичные —
+    # для ротации, через запятую. Вне production пустой ключ выводится из JWT_SECRET.
+    DATA_ENCRYPTION_KEY: str = ""
+    DATA_ENCRYPTION_KEYS_SECONDARY: str = ""
+
     # --- Кандидатский флоу и письма ------------------------------------------
     # Контакт оператора в юридических текстах и письмах.
     SUPPORT_EMAIL: str = "info@napoleonit.ru"
@@ -65,6 +70,18 @@ class Settings(BaseSettings):
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     SMTP_STARTTLS: bool = True
+
+    # --- Медиа-пайплайн --------------------------------------------------------
+    FFMPEG_BIN: str = "ffmpeg"
+    FFPROBE_BIN: str = "ffprobe"
+    # Потолок на один вызов ffmpeg: ответ на минуты обрабатывается за секунды,
+    # десять минут — это уже зависший процесс, который нужно убить.
+    FFMPEG_TIMEOUT_S: int = 600
+    # Час (UTC), в который воркер запускает ежедневную чистку медиа по сроку хранения.
+    RETENTION_PURGE_HOUR_UTC: int = Field(default=3, ge=0, le=23)
+    # Ответ в статусе processing без изменений дольше этого срока считается
+    # брошенным (воркер убит без graceful stop) и берётся в обработку заново.
+    PIPELINE_STALE_PROCESSING_S: int = Field(default=1800, ge=60)
 
     # --- Шлюз к моделям -------------------------------------------------------
     # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
@@ -107,6 +124,12 @@ class Settings(BaseSettings):
     MODEL_TTS_PROXY_URL: str | None = None
     MODEL_TTS_TIMEOUT_S: float | None = None
 
+    # --- Оценка интервью ------------------------------------------------------
+    # Пороги рекомендации по fit_score (0..100): ≥ FIT — «подходит»,
+    # < NO_FIT — «не подходит», между ними — «нужна проверка».
+    EVAL_FIT_THRESHOLD: float = 70
+    EVAL_NO_FIT_THRESHOLD: float = 45
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
@@ -141,6 +164,14 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _eval_thresholds_are_ordered(self) -> Settings:
+        if not 0 <= self.EVAL_NO_FIT_THRESHOLD < self.EVAL_FIT_THRESHOLD <= 100:
+            raise ValueError(
+                "EVAL_NO_FIT_THRESHOLD must be lower than EVAL_FIT_THRESHOLD, both within 0..100"
+            )
+        return self
+
     @field_validator("JWT_SECRET")
     @classmethod
     def _jwt_secret_is_real_in_production(cls, value: str, info) -> str:
@@ -149,6 +180,13 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be set to a real secret in production")
             if len(value) < 32:
                 raise ValueError("JWT_SECRET must be at least 32 characters in production")
+        return value
+
+    @field_validator("DATA_ENCRYPTION_KEY")
+    @classmethod
+    def _encryption_key_is_set_in_production(cls, value: str, info) -> str:
+        if info.data.get("ENVIRONMENT") == "production" and not value:
+            raise ValueError("DATA_ENCRYPTION_KEY must be set in production")
         return value
 
     @field_validator("CORS_ORIGINS")

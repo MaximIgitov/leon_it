@@ -458,9 +458,19 @@ class InterviewRoomService:
 
     @staticmethod
     def media_url(answer: Answer, ttl_s: int = 900) -> str | None:
-        if not answer.media_key or answer.status in (
-            AnswerStatus.recording,
-            AnswerStatus.abandoned,
-        ):
+        if answer.status in (AnswerStatus.recording, AnswerStatus.abandoned):
+            return None
+        playback_key = (answer.media_meta or {}).get("playback_key")
+        if playback_key:
+            # Ремукс с cues и длительностью: перемотка к цитате в отчёте работает,
+            # оригинал остаётся в хранилище как доказательство.
+            return sign_media_url(playback_key, ttl_s=ttl_s, content_type="video/webm")
+        if not answer.media_key:
             return None
         return sign_media_url(answer.media_key, ttl_s=ttl_s, content_type=answer.media_content_type)
+
+    @staticmethod
+    def audio_url(answer: Answer, ttl_s: int = 900) -> str | None:
+        if not answer.audio_key:
+            return None
+        return sign_media_url(answer.audio_key, ttl_s=ttl_s, content_type="audio/ogg")
