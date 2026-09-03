@@ -10,7 +10,11 @@ from __future__ import annotations
 import hashlib
 
 from leonit.ai.providers.base import AUDIO_CONTENT_TYPES, TTSProvider
-from leonit.core.storage import Storage
+from leonit.core.storage import KeyLocks, Storage
+
+# Промах по одному ключу из нескольких комнат одновременно (вакансию открыли
+# сразу несколько кандидатов) — синтезировать должен один, остальные ждут его.
+_synthesis_locks = KeyLocks()
 
 
 def tts_cache_key(text: str, voice: str, model: str, audio_format: str) -> str:
@@ -33,6 +37,10 @@ async def get_or_synthesize(
     content_type = AUDIO_CONTENT_TYPES.get(actual_format, "application/octet-stream")
     if await storage.exists(key):
         return key, content_type
-    result = await tts.synthesize(text, voice=voice, audio_format=audio_format)
-    await storage.put(key, result.data)
+    async with _synthesis_locks(key):
+        # Пока ждали блокировку, файл мог записать тот, кто её держал.
+        if await storage.exists(key):
+            return key, content_type
+        result = await tts.synthesize(text, voice=voice, audio_format=audio_format)
+        await storage.put(key, result.data)
     return key, result.content_type or content_type
