@@ -23,7 +23,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq docker.io docker-compose-v2 curl jq git >/dev/null
+apt-get install -y -qq docker.io docker-buildx docker-compose-v2 curl jq git >/dev/null
 systemctl enable --now docker >/dev/null
 log "docker $(docker --version | awk '{print $3}') готов"
 

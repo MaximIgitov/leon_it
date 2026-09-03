@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /i/
+Disallow: /r/
+Disallow: /join
