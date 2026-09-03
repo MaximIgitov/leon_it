@@ -105,6 +105,44 @@ async def test_invite_requires_published_vacancy(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_invite_with_malformed_ids_is_422(client: AsyncClient) -> None:
+    """Неверные UUID отсекает схема: 422 с указанием поля, а не ValueError и 500 из сервиса."""
+    _, token = await register(client)
+    vacancy = await _published_vacancy(client, token)
+    bad_vacancy = await client.post(
+        "/api/interviews",
+        json={"vacancy_id": "not-a-uuid", "full_name": "Х", "email": "x@example.com"},
+        headers=bearer(token),
+    )
+    assert bad_vacancy.status_code == 422, bad_vacancy.text
+    assert ["body", "vacancy_id"] in [e["loc"] for e in bad_vacancy.json()["detail"]]
+
+    bad_candidate = await client.post(
+        "/api/interviews",
+        json={"vacancy_id": vacancy["id"], "candidate_id": "nope"},
+        headers=bearer(token),
+    )
+    assert bad_candidate.status_code == 422, bad_candidate.text
+    assert ["body", "candidate_id"] in [e["loc"] for e in bad_candidate.json()["detail"]]
+
+    bad_bulk = await client.post(
+        "/api/candidates/bulk",
+        json={"text": "x@example.com", "vacancy_id": "not-a-uuid"},
+        headers=bearer(token),
+    )
+    assert bad_bulk.status_code == 422, bad_bulk.text
+
+    # Пустая строка из диалога кабинета (вакансия не выбрана) означает «без приглашений».
+    no_vacancy = await client.post(
+        "/api/candidates/bulk",
+        json={"text": "y@example.com", "vacancy_id": ""},
+        headers=bearer(token),
+    )
+    assert no_vacancy.status_code == 200, no_vacancy.text
+    assert no_vacancy.json()["invited"] == 0
+    assert [c["email"] for c in no_vacancy.json()["created"]] == ["y@example.com"]
+
+
 async def test_invite_flow_link_shown_once_and_email_queued(client: AsyncClient) -> None:
     _, token = await register(client, organization_name="Napoleon IT")
     vacancy = await _published_vacancy(client, token)

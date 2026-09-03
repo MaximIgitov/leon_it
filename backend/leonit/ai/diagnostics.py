@@ -92,3 +92,28 @@ async def check_role(config: RoleConfig, *, settings: Settings | None = None) ->
 async def check_models(*, settings: Settings | None = None) -> list[RoleStatus]:
     configs = all_role_configs(settings)
     return list(await asyncio.gather(*(check_role(c, settings=settings) for c in configs)))
+
+
+def _print_report(statuses: list[RoleStatus]) -> None:
+    for status in statuses:
+        state = "не настроен" if not status.configured else ("ok" if status.ok else "ОШИБКА")
+        latency = f" {status.latency_ms} мс" if status.latency_ms is not None else ""
+        error = f" — {status.error}" if status.error else ""
+        print(f"{status.role:<12} {status.provider:<18} {status.model:<32} {state}{latency}{error}")
+
+
+def main() -> int:
+    """``python -m leonit.ai.diagnostics`` — проверить модели по ролям (для runbook)."""
+    import sys
+
+    from leonit.core.config import get_settings
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    statuses = asyncio.run(check_models(settings=get_settings()))
+    _print_report(statuses)
+    return 0 if all(item.ok or not item.configured for item in statuses) else 1
+
+
+if __name__ == "__main__":  # pragma: no cover - утилита командной строки
+    raise SystemExit(main())

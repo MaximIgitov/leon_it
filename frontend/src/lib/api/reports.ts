@@ -40,6 +40,8 @@ export type Evidence = {
   quote: string;
   start_s: number | null;
   end_s: number | null;
+  /** Проставляет сервер: цитата найдена в транскрипте дословно. */
+  verified?: boolean;
 };
 
 export type EvaluationOutput = {
@@ -88,6 +90,8 @@ export type Evaluation = {
   model: string | null;
   prompt_version: string | null;
   evaluated_at: string | null;
+  quotes_found?: number | null;
+  quotes_total?: number | null;
   error: string | null;
 };
 
