@@ -18,6 +18,7 @@ import contextlib
 import os
 import posixpath
 import shutil
+import uuid
 from collections.abc import AsyncIterator
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -43,6 +44,40 @@ class StorageOffsetConflict(ConflictError):
         self.key = key
         self.expected_offset = expected_offset
         self.current_size = current_size
+
+
+class KeyLocks:
+    """Блокировки по ключу в пределах процесса.
+
+    Нужны там, где операция над одним объектом состоит из проверки и записи
+    (докачка чанка, синтез с кэшированием): два конкурентных вызова с одним
+    ключом иначе оба проходят проверку. Блокировка живёт, пока ключ кому-то
+    нужен, и удаляется последним владельцем — иначе словарь рос бы на каждый
+    когда-либо тронутый ключ, а ``asyncio.Lock`` привязывался к первому event
+    loop и ломал тесты с новым loop.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._holders: dict[str, int] = {}
+
+    def __len__(self) -> int:
+        return len(self._locks)
+
+    @contextlib.asynccontextmanager
+    async def __call__(self, key: str) -> AsyncIterator[None]:
+        lock = self._locks.get(key)
+        if lock is None:
+            lock = self._locks[key] = asyncio.Lock()
+        self._holders[key] = self._holders.get(key, 0) + 1
+        try:
+            async with lock:
+                yield
+        finally:
+            self._holders[key] -= 1
+            if self._holders[key] == 0:
+                del self._holders[key]
+                del self._locks[key]
 
 
 def normalize_key(key: str) -> str:
@@ -86,14 +121,17 @@ class LocalStorage:
     Блокирующий ввод-вывод уходит в поток, чтобы загрузка видеочанков не
     останавливала event loop. ``put`` пишет во временный файл и переименовывает
     атомарно: читатели никогда не увидят наполовину записанный объект.
+    ``append`` держит блокировку по ключу: проверка смещения и дозапись должны
+    быть одним шагом, иначе два повтора одного чанка оба пройдут проверку.
     """
 
     def __init__(self, root: Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
-        self.root = Path(root).resolve()
+        self.root = _resolved(Path(root))
         self.chunk_size = chunk_size
+        self._append_locks = KeyLocks()
 
     def path_for(self, key: str) -> Path:
-        path = (self.root / normalize_key(key)).resolve()
+        path = _resolved(self.root / normalize_key(key))
         # Двойная проверка после resolve(): защищает и от симлинков внутри тома.
         if self.root != path and self.root not in path.parents:
             raise ValidationFailedError("storage key must not leave the storage root")
@@ -101,7 +139,10 @@ class LocalStorage:
 
     async def put(self, key: str, data: bytes | AsyncIterator[bytes]) -> int:
         path = self.path_for(key)
-        temp = path.with_name(f"{path.name}.{os.getpid()}.part")
+        # Имя временного файла уникально на вызов, а не на процесс: два
+        # конкурентных put одного ключа (повтор запроса, гонка на кэше озвучки)
+        # иначе пишут в один .part и второй os.replace падает на пустоте.
+        temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.part")
         await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
         size = 0
         try:
@@ -120,8 +161,9 @@ class LocalStorage:
 
     async def append(self, key: str, data: bytes, offset: int) -> int:
         path = self.path_for(key)
-        await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
-        return await asyncio.to_thread(_append_at, path, bytes(data), offset, key)
+        async with self._append_locks(normalize_key(key)):
+            await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+            return await asyncio.to_thread(_append_at, path, bytes(data), offset, key)
 
     async def size(self, key: str) -> int:
         path = self.path_for(key)
@@ -170,6 +212,28 @@ class LocalStorage:
         await asyncio.to_thread(shutil.rmtree, path, True)
 
 
+_WIN_EXTENDED_PREFIX = "\\\\?\\"
+_WIN_EXTENDED_UNC_PREFIX = "\\\\?\\UNC\\"
+
+
+def _resolved(path: Path) -> Path:
+    """``resolve()`` с одинаковым видом пути независимо от того, существует ли он.
+
+    На Windows ``realpath`` ещё не существующего пути, чей каталог в этот момент
+    создаёт другой поток (``mkdir`` соседней загрузки), может вернуть путь с
+    префиксом ``\\\\?\\``: префикс снимается только при совпадении кода ошибки
+    «до» и «после». Сравнение с корнем тогда ложно срабатывало бы как выход за
+    пределы тома, и клиент получал бы 422 на честный ключ.
+    """
+    resolved = path.resolve()
+    text = str(resolved)
+    if text.startswith(_WIN_EXTENDED_UNC_PREFIX):
+        return Path("\\\\" + text[len(_WIN_EXTENDED_UNC_PREFIX) :])
+    if text.startswith(_WIN_EXTENDED_PREFIX):
+        return Path(text[len(_WIN_EXTENDED_PREFIX) :])
+    return resolved
+
+
 def _write_bytes(path: Path, data: bytes) -> int:
     with open(path, "wb") as handle:
         handle.write(data)
@@ -177,10 +241,17 @@ def _write_bytes(path: Path, data: bytes) -> int:
 
 
 def _append_at(path: Path, data: bytes, offset: int, key: str) -> int:
-    current = path.stat().st_size if path.exists() else 0
-    if current != offset:
-        raise StorageOffsetConflict(key, expected_offset=offset, current_size=current)
+    # Первый чанк с ненулевым смещением — конфликт без побочных эффектов: файл
+    # не создаём, чтобы неудачный повтор не оставлял пустой объект.
+    if offset != 0 and not path.exists():
+        raise StorageOffsetConflict(key, expected_offset=offset, current_size=0)
     with open(path, "ab") as handle:
+        # Смещение сверяется по уже открытому дескриптору в режиме append, а не
+        # по отдельному stat(): между ними никто не успеет дописать.
+        handle.seek(0, os.SEEK_END)
+        current = handle.tell()
+        if current != offset:
+            raise StorageOffsetConflict(key, expected_offset=offset, current_size=current)
         handle.write(data)
     return current + len(data)
 
