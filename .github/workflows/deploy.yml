@@ -82,6 +82,25 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           # Сборка на GitHub не удалась или пропущена — собираем на сервере.
           BUILD_ON_SERVER: ${{ needs.build.result != 'success' }}
+          # Секреты репозитория → /opt/leonit/.env (deploy.sh переносит все
+          # непустые SYNC_*). Пустой секрет ничего не перезаписывает, поэтому
+          # значения можно задавать и прямо в .env на сервере.
+          SYNC_MODEL_DEFAULT_API_KEY: ${{ secrets.MODEL_DEFAULT_API_KEY }}
+          SYNC_MODEL_DEFAULT_BASE_URL: ${{ secrets.MODEL_DEFAULT_BASE_URL }}
+          SYNC_MODEL_DEFAULT_PROXY_URL: ${{ secrets.MODEL_DEFAULT_PROXY_URL }}
+          SYNC_MODEL_EVALUATOR_MODEL: ${{ secrets.MODEL_EVALUATOR_MODEL }}
+          SYNC_MODEL_ASSISTANT_MODEL: ${{ secrets.MODEL_ASSISTANT_MODEL }}
+          SYNC_MODEL_INTERVIEWER_MODEL: ${{ secrets.MODEL_INTERVIEWER_MODEL }}
+          SYNC_MODEL_STT_MODEL: ${{ secrets.MODEL_STT_MODEL }}
+          SYNC_MODEL_TTS_MODEL: ${{ secrets.MODEL_TTS_MODEL }}
+          SYNC_HH_CLIENT_ID: ${{ secrets.HH_CLIENT_ID }}
+          SYNC_HH_CLIENT_SECRET: ${{ secrets.HH_CLIENT_SECRET }}
+          SYNC_EMAIL_MODE: ${{ secrets.EMAIL_MODE }}
+          SYNC_EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          SYNC_SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SYNC_SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SYNC_SMTP_USER: ${{ secrets.SMTP_USER }}
+          SYNC_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: bash deploy/deploy.sh
       - name: Итог
         run: |
