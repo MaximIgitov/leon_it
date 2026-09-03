@@ -221,3 +221,71 @@ POSIX — `nice -n 10`, результат пишется во временны�
 генерируют файлы самим ffmpeg (`-f lavfi`, фикстура `samples` в conftest).
 Локально без ffmpeg/ffprobe они пропускаются; в CI (`CI=1`) ffmpeg обязателен —
 без него модуль падает на импорте, а не пропускает сценарии молча.
+
+### `avatar/` и `code_runner/` — ИИ-аватар и секция кода (задел)
+
+Оба модуля — интерфейсы за фиче-флагами: реальных провайдеров в репозитории
+нет, комната и отчёт уже умеют с ними работать, а подключение — это одна
+реализация протокола и одна строка в реестре.
+
+**Аватар интервьюера.** `AvatarProvider.render(question_text, voice, language)
+-> AvatarClip(url, duration_s, storage_key) | None`. Комната при показе вопроса
+отдаёт в `POST …/questions/{index}/reveal` поле
+`avatar: {enabled, clip_url, duration_s}`: `enabled=false` — фронтенд
+показывает персону «ИИ-интервьюер LeonIT» с индикатором речи по озвучке TTS;
+`enabled=true` и `clip_url` — видео аватара (TTS тогда не дублируется). Клипы
+кэшируются по хешу текста, голоса, языка и имени провайдера
+(`avatar/cache.py`, манифест `avatar/<sha256>.json` в хранилище; отказ
+провайдера не кэшируется, ошибка — в лог, интервью не останавливается).
+Провайдер, который кладёт видео в наше хранилище, возвращает `storage_key` —
+комната подписывает свежую ссылку на каждой выдаче.
+
+Как включить: реализовать протокол в `leonit/avatar/providers/<name>.py`
+(HTTP только через `httpx.AsyncClient` с таймаутами, ключи — из настроек или
+через `SecretBox`), зарегистрировать `register_avatar_provider("<name>",
+factory)`, добавить имя в `AvatarProvider` Literal в `core/config.py`, задать
+`AVATAR_ENABLED=true` и `AVATAR_PROVIDER=<name>`. С `NullAvatarProvider`
+(`AVATAR_PROVIDER=none`, по умолчанию) флаг ничего не включает.
+
+**Секция кода.** Вопрос `kind=code` в комнате — редактор вместо записи: код
+хранится в `Answer.code_submission` (`{language, source, submitted_at,
+run_result}`), видео-пояснение к нему необязательно и пишется в ту же попытку.
+Ручки комнаты:
+
+* `PUT …/answers/{question_id}/code` `{language, source, submit}` — черновик
+  (`submit=false`) или отправка. Язык — из `CODE_LANGUAGES` (иначе 422), размер
+  — до `CODE_MAX_SOURCE_BYTES` (иначе 413), только текущий вопрос `kind=code`
+  (иначе 409). Отправка кода без видео переводит ответ сразу в `done`
+  (пайплайну обрабатывать нечего) и делает попытку зачётной; `POST …/next`
+  для такого вопроса требует отправленный код, а не запись.
+* `POST …/answers/{question_id}/code/run` `{language, source, stdin}` —
+  запуск. При `CODE_RUNNER=none` — 409 `{"detail": …, "code":
+  "runner_disabled"}`; с реальным раннером результат (`status ok|error|timeout`,
+  stdout/stderr, код выхода, длительность) сохраняется в
+  `code_submission.run_result` и сбрасывается, если текст кода изменился.
+* `GET …/state` и `AnswerOut` отдают `code_submission` (восстановление
+  редактора после перезагрузки) и `code_runner: {enabled, languages,
+  max_source_bytes}` — клиент по нему выключает кнопку «Запустить».
+
+Сотрудник и отчёт по ссылке получают `code_submission` в деталях ответа;
+`leonit.interviews.answer_text_for_evaluation(answer)` собирает текст ответа
+для оценщика — транскрипт плюс блок ` ```<language> ` с кодом и кратким
+результатом запуска; у ответа без видео этот же текст отдаётся как
+`transcript_text`. Модуль оценки должен брать текст через этот helper.
+
+Как включить раннер: реализовать `CodeRunner.run(language, source, stdin,
+timeout_s) -> RunResult` (внешний сервис вроде Piston/Judge0 через httpx или
+своя песочница docker/firecracker без сети и с лимитами — план в
+`code_runner/registry.py`), зарегистрировать `register_code_runner("<name>",
+factory)`, добавить имя в `CodeRunnerKind` Literal и задать `CODE_RUNNER=<name>`.
+
+| Переменная | Назначение |
+|---|---|
+| `AVATAR_ENABLED`, `AVATAR_PROVIDER` | Флаг и имя провайдера аватара (`none`). |
+| `CODE_RUNNER`, `CODE_RUNNER_TIMEOUT_S` | Раннер кода (`none`) и таймаут одного запуска (10 с). |
+| `CODE_LANGUAGES` | JSON-список языков, по умолчанию `python, javascript, typescript, go, java, sql`. |
+| `CODE_MAX_SOURCE_BYTES` | Лимит исходника, 65536. |
+
+Ограничения задела: подсветки синтаксиса и автодополнения в редакторе нет
+(textarea с номерами строк и Tab-отступом), таймер на задачу с кодом не
+ставится, а результат запуска появится только после подключения раннера.
