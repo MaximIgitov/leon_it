@@ -49,6 +49,9 @@ compose() {
 
 if [[ "${BUILD_ON_SERVER}" == "true" ]]; then
   log "собираем образы на сервере (резервный путь)"
+  # Dockerfile используют BuildKit (RUN --mount=type=cache); legacy builder их
+  # не соберёт, поэтому buildx на сервере обязателен (ставит bootstrap).
+  export DOCKER_BUILDKIT=1
   docker build --network=host -t "${BACKEND_IMAGE}:${IMAGE_TAG}" "${REPO_DIR}/backend"
   docker build --network=host \
     --build-arg NEXT_PUBLIC_BACKEND_API_URL=/api \
