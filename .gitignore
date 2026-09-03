@@ -48,3 +48,6 @@ uploads/
 
 # --- рабочие каталоги агентов и локальные настройки Claude Code ---
 .claude/
+
+# --- отчёты eval-скрипта ---
+backend/evals/last-run.json
