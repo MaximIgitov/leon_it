@@ -2,6 +2,8 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { killPort } from "./global-setup";
+
 const STATE_DIR = path.join(__dirname, ".state");
 
 function kill(pid: number | undefined): void {
@@ -23,4 +25,7 @@ export default async function globalTeardown(): Promise<void> {
   if (!existsSync(file)) return;
   const pids = JSON.parse(readFileSync(file, "utf-8")) as Record<string, number>;
   Object.values(pids).forEach(kill);
+  // На Windows дерево процессов npm → node не всегда убивается по PID; добиваем по портам.
+  killPort(3000);
+  killPort(8000);
 }

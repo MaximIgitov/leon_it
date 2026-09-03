@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /*
@@ -38,8 +38,25 @@ function start(command: string, args: string[], cwd: string, env: NodeJS.Process
   return child;
 }
 
+/** Освободить порт от процесса прошлого прогона (иначе тесты бьют в мёртвый сервер). */
+export function killPort(port: number): void {
+  try {
+    if (process.platform === "win32") {
+      const out = execSync(`netstat -ano | findstr LISTENING | findstr :${port}`, { encoding: "utf-8" });
+      const pids = new Set(out.split(/\r?\n/).map((l) => l.trim().split(/\s+/).pop()).filter((p) => p && p !== "0"));
+      pids.forEach((pid) => execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" }));
+    } else {
+      execSync(`fuser -k ${port}/tcp`, { stdio: "ignore" });
+    }
+  } catch {
+    /* порт свободен */
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
   if (process.env.E2E_EXTERNAL) return;
+  killPort(3000);
+  killPort(8000);
   rmSync(STATE_DIR, { recursive: true, force: true });
   mkdirSync(STATE_DIR, { recursive: true });
   const dataDir = path.join(STATE_DIR, "data");
@@ -73,9 +90,17 @@ export default async function globalSetup(): Promise<void> {
 
   const frontendDir = path.join(ROOT, "frontend");
   const frontendEnv = { NEXT_PUBLIC_BACKEND_API_URL: API_URL, NEXT_PUBLIC_APP_URL: BASE_URL, NEXT_TELEMETRY_DISABLED: "1" };
-  const frontend = process.env.E2E_FRONTEND_START
-    ? start("npm", ["run", "start", "--", "-p", "3000"], frontendDir, frontendEnv)
-    : start("npm", ["run", "dev", "--", "-p", "3000"], frontendDir, frontendEnv);
+  let frontend: ChildProcess;
+  if (process.env.E2E_FRONTEND_START) {
+    // Прод-сборка standalone: как в Docker-образе, рядом с server.js нужны
+    // статика и public. next dev на Windows нестабилен под нагрузкой тестов.
+    const standalone = path.join(frontendDir, ".next", "standalone");
+    cpSync(path.join(frontendDir, ".next", "static"), path.join(standalone, ".next", "static"), { recursive: true });
+    cpSync(path.join(frontendDir, "public"), path.join(standalone, "public"), { recursive: true });
+    frontend = start("node", ["server.js"], standalone, { ...frontendEnv, PORT: "3000", HOSTNAME: "127.0.0.1" });
+  } else {
+    frontend = start("npm", ["run", "dev", "--", "-p", "3000"], frontendDir, frontendEnv);
+  }
 
   writeFileSync(
     path.join(STATE_DIR, "pids.json"),

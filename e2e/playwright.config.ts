@@ -21,7 +21,8 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
-    video: process.env.E2E_VIDEO ? "on" : "retain-on-failure",
+    // Видео требует ffmpeg из дистрибутива Playwright; локально его может не быть.
+    video: process.env.E2E_VIDEO ? "on" : "off",
     launchOptions: {
       args: [
         "--use-fake-device-for-media-stream",
