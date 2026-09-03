@@ -33,6 +33,7 @@ def test_metrics_hidden_in_production_without_token() -> None:
         JWT_SECRET="x" * 40,
         CORS_ORIGINS=["https://example.com"],
         METRICS_TOKEN=None,
+        DATA_ENCRYPTION_KEY="k",
         MODEL_PROVIDER="openai_compatible",
         MODEL_DEFAULT_API_KEY="test-key",
     )
