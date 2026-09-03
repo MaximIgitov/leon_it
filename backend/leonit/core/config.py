@@ -11,12 +11,19 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
+ModelProvider = Literal["openai_compatible", "fake"]
+
+# Роли моделей: у каждой свой набор MODEL_<ROLE>_* переменных (см. leonit.ai.config).
+MODEL_ROLES: tuple[str, ...] = ("evaluator", "assistant", "interviewer", "stt", "tts")
 
 _DEFAULT_JWT_SECRET = "change-me-local-only"
+# OpenAI-совместимый агрегатор, доступный из РФ и умеющий /audio/*; OpenRouter
+# /audio/* не умеет, поэтому base_url задаётся на роль, а не глобально.
+_DEFAULT_MODEL_BASE_URL = "https://api.aitunnel.ru/v1"
 
 
 class Settings(BaseSettings):
@@ -45,9 +52,80 @@ class Settings(BaseSettings):
     # /metrics отдаётся только с этим токеном; без него на проде ручка скрыта.
     METRICS_TOKEN: str | None = None
 
+    # --- Шлюз к моделям -------------------------------------------------------
+    # None — выбрать автоматически: fake, если ни у одной роли нет ключа, иначе
+    # openai_compatible. Так CI и e2e работают без ключей и сети, а стенд с
+    # ключами ничего дополнительно не настраивает.
+    MODEL_PROVIDER: ModelProvider | None = None
+    MODEL_ALLOW_FAKE_IN_PRODUCTION: bool = False
+    # Фолбэк для ролей, у которых нет собственных MODEL_<ROLE>_* значений.
+    MODEL_DEFAULT_BASE_URL: str = _DEFAULT_MODEL_BASE_URL
+    MODEL_DEFAULT_API_KEY: str | None = None
+    MODEL_DEFAULT_PROXY_URL: str | None = None
+
+    MODEL_EVALUATOR_BASE_URL: str | None = None
+    MODEL_EVALUATOR_API_KEY: str | None = None
+    MODEL_EVALUATOR_MODEL: str = "claude-sonnet-5"
+    MODEL_EVALUATOR_PROXY_URL: str | None = None
+    MODEL_EVALUATOR_TIMEOUT_S: float | None = None
+
+    MODEL_ASSISTANT_BASE_URL: str | None = None
+    MODEL_ASSISTANT_API_KEY: str | None = None
+    MODEL_ASSISTANT_MODEL: str = "claude-sonnet-5"
+    MODEL_ASSISTANT_PROXY_URL: str | None = None
+    MODEL_ASSISTANT_TIMEOUT_S: float | None = None
+
+    MODEL_INTERVIEWER_BASE_URL: str | None = None
+    MODEL_INTERVIEWER_API_KEY: str | None = None
+    MODEL_INTERVIEWER_MODEL: str = "claude-haiku-4.5"
+    MODEL_INTERVIEWER_PROXY_URL: str | None = None
+    MODEL_INTERVIEWER_TIMEOUT_S: float | None = None
+
+    MODEL_STT_BASE_URL: str | None = None
+    MODEL_STT_API_KEY: str | None = None
+    MODEL_STT_MODEL: str = "gpt-4o-transcribe"
+    MODEL_STT_PROXY_URL: str | None = None
+    MODEL_STT_TIMEOUT_S: float | None = None
+
+    MODEL_TTS_BASE_URL: str | None = None
+    MODEL_TTS_API_KEY: str | None = None
+    MODEL_TTS_MODEL: str = "gpt-4o-mini-tts"
+    MODEL_TTS_PROXY_URL: str | None = None
+    MODEL_TTS_TIMEOUT_S: float | None = None
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    def model_role_value(self, role: str, name: str) -> object:
+        """Значение MODEL_<ROLE>_<NAME> (без фолбэков; их применяет leonit.ai.config)."""
+        return getattr(self, f"MODEL_{role.upper()}_{name.upper()}")
+
+    def model_role_api_key(self, role: str) -> str | None:
+        return self.model_role_value(role, "API_KEY") or self.MODEL_DEFAULT_API_KEY
+
+    @property
+    def effective_model_provider(self) -> ModelProvider:
+        if self.MODEL_PROVIDER is not None:
+            return self.MODEL_PROVIDER
+        if any(self.model_role_api_key(role) for role in MODEL_ROLES):
+            return "openai_compatible"
+        return "fake"
+
+    @model_validator(mode="after")
+    def _no_fake_models_in_production(self) -> Settings:
+        # Фейковый провайдер на проде означает, что кандидатов «оценивает» заглушка;
+        # включить это можно только явно, чтобы не выкатить стенд без ключей.
+        if (
+            self.is_production
+            and self.effective_model_provider == "fake"
+            and not self.MODEL_ALLOW_FAKE_IN_PRODUCTION
+        ):
+            raise ValueError(
+                "MODEL_PROVIDER=fake is not allowed in production "
+                "(set MODEL_*_API_KEY or MODEL_ALLOW_FAKE_IN_PRODUCTION=true)"
+            )
+        return self
 
     @field_validator("JWT_SECRET")
     @classmethod

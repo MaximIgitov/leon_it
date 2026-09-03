@@ -11,6 +11,7 @@ import importlib
 MODEL_MODULES: tuple[str, ...] = (
     "leonit.accounts.models",
     "leonit.vacancies.models",
+    "leonit.jobs.models",
 )
 
 

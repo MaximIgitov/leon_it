@@ -19,11 +19,15 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP_DIR / 'test.db').as_posix()}"
 os.environ["MEDIA_ROOT"] = (_TMP_DIR / "media").as_posix()
 os.environ.setdefault("JWT_SECRET", "test-secret-test-secret-test-secret-1234")
+# Тесты никогда не ходят в реальные модели, даже если в .env разработчика есть ключи.
+os.environ["MODEL_PROVIDER"] = "fake"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
+from leonit.ai.gateway import reset_gateway  # noqa: E402
 from leonit.core.db import Base, dispose_engine, get_engine  # noqa: E402
 from leonit.core.observability import metrics  # noqa: E402
+from leonit.core.storage import reset_storage  # noqa: E402
 from leonit.main import create_app  # noqa: E402
 from leonit.models import load_all_models  # noqa: E402
 
@@ -43,6 +47,17 @@ def _reset_metrics():
     metrics.reset()
     yield
     metrics.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_gateway_and_storage():
+    # Провайдеры и HTTP-клиенты кэшируются по конфигурации; между тестами
+    # event loop меняется, поэтому кэш сбрасываем, а не переиспользуем.
+    reset_gateway()
+    reset_storage()
+    yield
+    reset_gateway()
+    reset_storage()
 
 
 @pytest.fixture

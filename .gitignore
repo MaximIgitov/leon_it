@@ -38,6 +38,8 @@ test-results/
 # --- media & runtime data ---
 data/
 media/
+# пакет leonit/media — код, а не данные
+!backend/leonit/media/
 uploads/
 *.log
 
