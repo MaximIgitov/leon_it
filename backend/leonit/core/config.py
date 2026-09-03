@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # /metrics отдаётся только с этим токеном; без него на проде ручка скрыта.
     METRICS_TOKEN: str | None = None
 
+    # Страница документации публичного API (/api/docs/api, Scalar). В отличие от
+    # Swagger кабинета, она нужна и на проде: её читают интеграторы.
+    PUBLIC_API_DOCS_ENABLED: bool = True
+
     # Ключ Fernet для секретов интеграций в БД (см. core.crypto); вторичные —
     # для ротации, через запятую. Вне production пустой ключ выводится из JWT_SECRET.
     DATA_ENCRYPTION_KEY: str = ""

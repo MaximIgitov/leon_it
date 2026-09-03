@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from leonit.accounts.router import auth_router, invites_router, organization_router
 from leonit.ai.gateway import shutdown_gateway
+from leonit.api_tokens.router import router as api_tokens_router
 from leonit.assistant.router import router as assistant_router
 from leonit.candidates.router import candidates_router, interviews_router, public_router
 from leonit.core.config import get_settings
@@ -30,6 +31,9 @@ from leonit.interviews.router import staff_router as interview_staff_router
 from leonit.legal.router import router as legal_router
 from leonit.media.router import router as media_router
 from leonit.notifications.router import router as emails_router
+from leonit.public_api.docs import API_DESCRIPTION, OPENAPI_TAGS
+from leonit.public_api.docs import router as api_docs_router
+from leonit.public_api.router import router as public_api_router
 from leonit.reports.router import public_router as public_reports_router
 from leonit.reports.router import router as reports_router
 from leonit.vacancies.router import router as vacancies_router
@@ -52,6 +56,9 @@ ROUTERS: list[APIRouter] = [
     public_reports_router,
     emails_router,
     assistant_router,
+    api_tokens_router,
+    public_api_router,
+    api_docs_router,
 ]
 
 
@@ -70,7 +77,20 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="LeonIT API",
         version="0.1.0",
+        description=API_DESCRIPTION,
+        openapi_tags=OPENAPI_TAGS,
+        # На стенде API живёт за тем же доменом, что и сайт (Caddy проксирует /api);
+        # локально документация открывается с самого бэкенда, и относительного
+        # адреса достаточно.
+        servers=[
+            {
+                "url": settings.PUBLIC_URL if settings.is_production else "/",
+                "description": "LeonIT",
+            }
+        ],
         lifespan=lifespan,
+        # Swagger кабинета на проде выключен; документация публичного API —
+        # отдельная страница /api/docs/api (см. leonit.public_api.docs).
         docs_url=None if settings.is_production else f"{settings.API_PREFIX}/docs",
         redoc_url=None,
         openapi_url=f"{settings.API_PREFIX}/openapi.json",
