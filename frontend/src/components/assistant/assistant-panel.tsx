@@ -294,6 +294,13 @@ function AssistantSheet() {
     }
   };
 
+  const touchThread = (thread: { id: string; title: string }) =>
+    setThreads((items) =>
+      (items ?? []).map((item) =>
+        item.id === thread.id ? { ...item, title: thread.title, updated_at: new Date().toISOString() } : item,
+      ),
+    );
+
   const send = async (text: string) => {
     const content = text.trim();
     if (!content || streaming) return;
@@ -347,19 +354,18 @@ function AssistantSheet() {
             case "done":
               setMessages((items) => [...items, event.data.message]);
               setDraft(null);
-              setThreads((items) =>
-                (items ?? []).map((item) =>
-                  item.id === event.data.thread.id
-                    ? { ...item, title: event.data.thread.title, updated_at: new Date().toISOString() }
-                    : item,
-                ),
-              );
+              touchThread(event.data.thread);
               break;
-            case "error":
-              if (event.data.message) setMessages((items) => [...items, event.data.message!]);
+            case "error": {
+              // Ход прерван: черновик стрима отбрасываем, а сохранённое сообщение
+              // с причиной показываем как обычный ответ — оно есть и в истории.
+              const failed = event.data.message;
+              if (failed) setMessages((items) => [...items, failed]);
+              if (event.data.thread) touchThread(event.data.thread);
               setDraft(null);
               toast({ variant: "destructive", title: event.data.detail });
               break;
+            }
           }
         },
         controller.signal,

@@ -64,7 +64,12 @@ export type StreamEvent =
   | { type: "action"; data: AssistantAction }
   | { type: "reset"; data: Record<string, never> }
   | { type: "done"; data: { message: AssistantMessage; thread: { id: string; title: string } } }
-  | { type: "error"; data: { detail: string; message?: AssistantMessage } };
+  /* Ход прерван: причина, сохранённое сообщение ассистента (если ход дошёл до
+   * записи) и тред — заголовок уже присвоен первым сообщением. */
+  | {
+      type: "error";
+      data: { detail: string; message?: AssistantMessage; thread?: { id: string; title: string } };
+    };
 
 export const TOOL_LABELS: Record<string, string> = {
   list_vacancies: "Список вакансий",
