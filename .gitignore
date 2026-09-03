@@ -40,3 +40,6 @@ data/
 media/
 uploads/
 *.log
+
+# --- pytest ---
+.pytest_tmp/
