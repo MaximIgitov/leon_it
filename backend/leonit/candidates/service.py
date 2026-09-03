@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from datetime import timedelta
 from uuid import UUID
 
@@ -37,6 +38,15 @@ from leonit.vacancies.models import Vacancy, VacancyStatus
 
 def interview_link(token: str) -> str:
     return f"{get_settings().PUBLIC_URL}/i/{token}"
+
+
+async def vacancy_titles(session: AsyncSession, interviews: Iterable[Interview]) -> dict[UUID, str]:
+    """Названия вакансий для набора интервью одним запросом (списки кабинета и API)."""
+    ids = {interview.vacancy_id for interview in interviews}
+    if not ids:
+        return {}
+    rows = await session.execute(select(Vacancy.id, Vacancy.title).where(Vacancy.id.in_(ids)))
+    return {vacancy_id: title for vacancy_id, title in rows.all()}
 
 
 def estimated_minutes(vacancy: Vacancy) -> int:
@@ -127,6 +137,7 @@ class CandidateService:
         source: CandidateSource = CandidateSource.manual,
         phone: str | None = None,
         notes: str = "",
+        external_ref: str | None = None,
     ) -> tuple[Candidate, bool]:
         authorize(actor, "candidate.write")
         email = email.lower()
@@ -144,19 +155,28 @@ class CandidateService:
             phone=phone,
             notes=notes,
             source=source,
+            external_ref=external_ref,
             created_by_user_id=actor.user.id,
         )
         self.session.add(candidate)
         await self.session.flush()
         return candidate, True
 
-    async def create(self, actor: Actor, payload: CandidateCreate) -> Candidate:
+    async def create(
+        self,
+        actor: Actor,
+        payload: CandidateCreate,
+        *,
+        source: CandidateSource = CandidateSource.manual,
+    ) -> Candidate:
         candidate, created = await self.get_or_create(
             actor,
             full_name=payload.full_name,
             email=payload.email,
+            source=source,
             phone=payload.phone,
             notes=payload.notes,
+            external_ref=payload.external_ref,
         )
         if not created:
             raise ConflictError("Кандидат с таким e-mail уже есть")
@@ -207,17 +227,23 @@ class InterviewService:
             raise NotFoundError("Вакансия не найдена")
         return vacancy
 
-    async def invite(self, actor: Actor, payload: InviteRequest) -> tuple[Interview, str]:
-        vacancy = await self._vacancy(actor, UUID(payload.vacancy_id))
+    async def invite(
+        self,
+        actor: Actor,
+        payload: InviteRequest,
+        *,
+        source: CandidateSource = CandidateSource.manual,
+    ) -> tuple[Interview, str]:
+        vacancy = await self._vacancy(actor, payload.vacancy_id)
         authorize(actor, "candidate.write", vacancy_id=vacancy.id)
         if vacancy.status != VacancyStatus.published:
             raise ValidationFailedError("Приглашать можно только по опубликованной вакансии")
         candidates = CandidateService(self.session)
         if payload.candidate_id:
-            candidate = await candidates.get(actor, UUID(payload.candidate_id))
+            candidate = await candidates.get(actor, payload.candidate_id)
         elif payload.email and payload.full_name:
             candidate, _ = await candidates.get_or_create(
-                actor, full_name=payload.full_name, email=payload.email
+                actor, full_name=payload.full_name, email=payload.email, source=source
             )
         else:
             raise ValidationFailedError("Укажите кандидата или имя и e-mail нового")
