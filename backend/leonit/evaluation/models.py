@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from leonit.core.db import Base, TimestampMixin, uuid_pk
@@ -49,3 +49,6 @@ class Evaluation(TimestampMixin, Base):
     usage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Проверка цитат: сколько evidence.quote найдено в транскриптах дословно.
+    quotes_found: Mapped[int | None] = mapped_column(Integer)
+    quotes_total: Mapped[int | None] = mapped_column(Integer)

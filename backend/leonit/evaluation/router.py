@@ -39,6 +39,8 @@ def evaluation_out(interview: Interview, evaluation: Evaluation) -> EvaluationOu
         prompt_version=evaluation.prompt_version,
         evaluated_at=aware(evaluation.evaluated_at),
         error=evaluation.error,
+        quotes_found=evaluation.quotes_found,
+        quotes_total=evaluation.quotes_total,
     )
 
 

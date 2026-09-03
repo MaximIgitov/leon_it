@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Recommendation = Literal["fit", "no_fit", "needs_check"]
 RECOMMENDATIONS: tuple[Recommendation, ...] = ("fit", "no_fit", "needs_check")
@@ -36,7 +36,6 @@ class Evidence(BaseModel):
     )
     quote: str = Field(
         min_length=1,
-        max_length=QUOTE_MAX_CHARS,
         description=(
             "Дословная цитата из транскрипта без правок и пересказа, не длиннее "
             f"{QUOTE_MAX_CHARS} символов"
@@ -48,6 +47,21 @@ class Evidence(BaseModel):
     end_s: float | None = Field(
         default=None, ge=0, description="Конец цитаты в секундах от начала ответа, если известно"
     )
+    verified: bool = Field(
+        default=True,
+        description=(
+            "Заполняет система после проверки: цитата найдена в транскрипте дословно. "
+            "Модель оставляет true"
+        ),
+    )
+
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _truncate_quote(cls, value: object) -> object:
+        # Слишком длинная цитата — не повод перезапускать всю оценку: обрезаем.
+        if isinstance(value, str) and len(value) > QUOTE_MAX_CHARS:
+            return value[: QUOTE_MAX_CHARS - 1].rstrip() + "…"
+        return value
 
 
 class CompetencyScore(BaseModel):
@@ -235,6 +249,9 @@ class EvaluationOut(BaseModel):
     prompt_version: str
     evaluated_at: datetime | None
     error: str | None
+    # Сколько цитат заключения найдено в транскриптах дословно (None — не считалось).
+    quotes_found: int | None = None
+    quotes_total: int | None = None
 
 
 class ReprocessAccepted(BaseModel):

@@ -4,6 +4,11 @@
 вопросы и транскрипты как данные. Её же гоняет eval-скрипт по датасету, поэтому
 согласие с экспертом измеряется ровно на том коде, который работает в проде.
 ``evaluate_interview`` лишь собирает эти данные из базы и сохраняет результат.
+
+Цитаты (``evidence``) проверяются по тем же текстам, которые видела модель
+(с плейсхолдерами вместо ПДн): найденные дословно помечаются ``verified``,
+остальные остаются в заключении с пометкой, а счётчик найдено/всего
+сохраняется в строке заключения и виден в отчёте.
 """
 
 from __future__ import annotations
@@ -15,11 +20,12 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from leonit.ai.gateway import get_llm
-from leonit.ai.providers.base import LLMProvider, ProviderError
+from leonit.ai.providers.base import LLMProvider
 from leonit.ai.structured import complete_structured
 from leonit.candidates.models import Interview, InterviewStatus
 from leonit.candidates.service import InterviewService, transition
@@ -81,6 +87,9 @@ class EvaluationResult:
     model: str
     # Сколько фрагментов ПДн заменено плейсхолдерами перед отправкой.
     redactions: int = 0
+    # Проверка цитат: найдено дословно / всего.
+    quotes_found: int = 0
+    quotes_total: int = 0
 
 
 def thresholds_from_settings(settings: Settings | None = None) -> Thresholds:
@@ -257,23 +266,54 @@ def _normalized(text: str) -> str:
     return _WS_RE.sub(" ", _PUNCT_RE.sub("", text)).strip().lower()
 
 
-def verify_quotes(
-    output: EvaluationOutput, transcripts: Sequence[TranscriptContext]
-) -> tuple[int, int]:
-    """Сколько цитат найдено в транскриптах дословно (с точностью до пунктуации и
-    регистра). Возвращает (найдено, всего)."""
-    texts = {
+def _transcript_texts(transcripts: Sequence[TranscriptContext]) -> dict[int, str]:
+    return {
         t.question_index: _normalized(t.text or " ".join(segment.text for segment in t.segments))
         for t in transcripts
         if t.available or t.segments
     }
+
+
+def _time_bounds(transcript: TranscriptContext | None) -> float | None:
+    """Верхняя граница таймкодов ответа: конец последнего сегмента или длительность."""
+    if transcript is None:
+        return None
+    if transcript.segments:
+        return max(segment.end_s for segment in transcript.segments)
+    return transcript.duration_s
+
+
+def verify_quotes(
+    output: EvaluationOutput, transcripts: Sequence[TranscriptContext]
+) -> tuple[int, int]:
+    """Проверить цитаты по транскриптам (с точностью до пунктуации и регистра).
+
+    Проверять нужно по тем текстам, которые видела модель — после замены ПДн
+    плейсхолдерами, иначе любая цитата с «[КАНДИДАТ]» считалась бы выдуманной.
+    Каждая цитата получает ``verified``, таймкоды прижимаются к границам ответа.
+    Возвращает (найдено, всего).
+    """
+    texts = _transcript_texts(transcripts)
+    by_index = {t.question_index: t for t in transcripts}
     found = total = 0
     for evidence in _evidence_of(output):
         total += 1
         haystack = texts.get(evidence.question_index, "")
-        needle = _normalized(evidence.quote)
-        if needle and needle in haystack:
-            found += 1
+        needle = _normalized(evidence.quote.rstrip("…"))
+        evidence.verified = bool(needle) and needle in haystack
+        found += int(evidence.verified)
+        limit = _time_bounds(by_index.get(evidence.question_index))
+        if limit is not None:
+            if evidence.start_s is not None:
+                evidence.start_s = min(max(evidence.start_s, 0.0), limit)
+            if evidence.end_s is not None:
+                evidence.end_s = min(max(evidence.end_s, 0.0), limit)
+        if (
+            evidence.start_s is not None
+            and evidence.end_s is not None
+            and evidence.end_s < evidence.start_s
+        ):
+            evidence.start_s, evidence.end_s = evidence.end_s, evidence.start_s
     return found, total
 
 
@@ -299,6 +339,7 @@ async def evaluate_payload(
     llm = llm or get_llm("evaluator", settings=settings)
     output, raw = await complete_structured(llm, messages, EvaluationOutput, temperature=0)
     output = normalize_output(output, transcripts_ctx)
+    quotes_found, quotes_total = verify_quotes(output, safe_transcripts)
     rubric = [item.model_dump() for item in vacancy_ctx.rubric]
     scoring = score_output(output, rubric, thresholds=thresholds_from_settings(settings))
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else None
@@ -311,6 +352,8 @@ async def evaluate_payload(
         usage=usage,
         model=getattr(llm, "model", ""),
         redactions=len(redactor.replacements),
+        quotes_found=quotes_found,
+        quotes_total=quotes_total,
     )
 
 
@@ -330,10 +373,21 @@ async def _get_or_create(session: AsyncSession, interview_id: UUID) -> Evaluatio
     evaluation = await session.scalar(
         select(Evaluation).where(Evaluation.interview_id == interview_id)
     )
-    if evaluation is None:
-        evaluation = Evaluation(interview_id=interview_id, prompt_version=PROMPT_VERSION)
-        session.add(evaluation)
+    if evaluation is not None:
+        return evaluation
+    evaluation = Evaluation(interview_id=interview_id, prompt_version=PROMPT_VERSION)
+    session.add(evaluation)
+    try:
         await session.flush()
+    except IntegrityError:
+        # Параллельная задача успела создать строку: берём её, а не падаем.
+        await session.rollback()
+        existing = await session.scalar(
+            select(Evaluation).where(Evaluation.interview_id == interview_id)
+        )
+        if existing is None:
+            raise
+        return existing
     return evaluation
 
 
@@ -386,6 +440,7 @@ async def evaluate_interview(
     llm = llm or get_llm("evaluator")
 
     evaluation = await _get_or_create(session, interview_id)
+    interview = await _load_interview(session, interview_id)
     evaluation.status = EvaluationStatus.pending
     evaluation.model = llm.model
     evaluation.prompt_version = PROMPT_VERSION
@@ -400,17 +455,22 @@ async def evaluate_interview(
         await session.commit()
         raise
 
-    found, total = verify_quotes(result.output, transcripts)
-    if total and found < total:
-        log.warning("evaluation.quotes interview=%s verbatim=%s/%s", interview_id, found, total)
+    if result.quotes_total and result.quotes_found < result.quotes_total:
+        log.warning(
+            "evaluation.quotes interview=%s verbatim=%s/%s",
+            interview_id,
+            result.quotes_found,
+            result.quotes_total,
+        )
 
     feedback: CandidateFeedback | None = None
     if vacancy.candidate_feedback_mode != CandidateFeedbackMode.off:
         try:
             feedback, _ = await generate_candidate_feedback(vacancy, result.output, llm=llm)
-        except ProviderError as error:
+        except Exception as error:
             # Обратная связь вторична: заключение готово, письмо кандидату
-            # подождёт переобработки — не тратим повтор всей оценки.
+            # подождёт переобработки — не тратим повтор всей оценки ни на
+            # ошибку провайдера, ни на невалидный ответ.
             log.warning("evaluation.feedback interview=%s error=%s", interview_id, error)
 
     evaluation.status = EvaluationStatus.done
@@ -421,16 +481,21 @@ async def evaluate_interview(
     evaluation.raw_response = result.raw_response
     evaluation.usage = result.usage
     evaluation.error = None
+    evaluation.quotes_found = result.quotes_found
+    evaluation.quotes_total = result.quotes_total
     evaluation.evaluated_at = utcnow()
     transition(interview, InterviewStatus.evaluated)
     await session.commit()
     log.info(
-        "evaluation.done interview=%s fit=%s recommendation=%s reasons=%s redactions=%s",
+        "evaluation.done interview=%s fit=%s recommendation=%s reasons=%s "
+        "redactions=%s quotes=%s/%s",
         interview_id,
         result.fit_score,
         result.recommendation,
         "; ".join(result.scoring.reasons),
         result.redactions,
+        result.quotes_found,
+        result.quotes_total,
     )
     return evaluation
 

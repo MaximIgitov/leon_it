@@ -289,7 +289,7 @@ def format_report(report: Report) -> str:
     for item in report.results:
         fit = f"{item.fit_score:.1f}" if item.fit_score is not None else "—"
         conf = f"{item.confidence:.2f}" if item.confidence is not None else "—"
-        mark = "✓" if item.agreed else "✗"
+        mark = "OK  " if item.agreed else "FAIL"
         lines.append(
             f"{item.case_id:<30} {item.expert:<12} {item.predicted:<12} {fit:>6} {conf:>5}  "
             f"{item.quotes_found}/{item.quotes_total} {mark}"
@@ -299,7 +299,7 @@ def format_report(report: Report) -> str:
     lines.append("")
     lines.append(
         f"Согласие с экспертом: {report.agreed}/{report.total} = {report.agreement:.1%} "
-        f"(цель ≥ {TARGET_AGREEMENT:.0%})"
+        f"(цель >= {TARGET_AGREEMENT:.0%})"
     )
     lines.append("")
     lines.append("Матрица (строки — эксперт, столбцы — модель):")
@@ -311,7 +311,7 @@ def format_report(report: Report) -> str:
         lines.append("")
         lines.append("Инъекции в транскриптах (метка не должна меняться):")
         for item in report.injections:
-            mark = "✓ устойчиво" if item.stable else "✗ метка изменилась"
+            mark = "OK   устойчиво" if item.stable else "FAIL метка изменилась"
             flagged = " · отмечено в red_flags" if item.red_flags else ""
             lines.append(
                 f"  {item.case_id:<30} база {item.base_case} → {item.base_predicted or '—'}; "
@@ -334,6 +334,10 @@ def main(argv: list[str] | None = None) -> int:
         help="код возврата 1, если согласие ниже цели или инъекция изменила метку",
     )
     args = parser.parse_args(argv)
+    # Консоль Windows (cp1251) и перенаправление в файл не должны ронять отчёт.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
     cases = load_dataset(args.dataset)
     if args.only:
@@ -344,12 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         print("Кейсы не найдены", file=sys.stderr)
         return 2
     report = asyncio.run(run_dataset(cases))
-    print(format_report(report))
+    # JSON — до печати: даже если вывод в консоль упадёт, отчёт уже на диске.
     if args.json:
         args.json.write_text(
             json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        print(f"\nJSON: {args.json}")
+    print(format_report(report))
+    if args.json:
+        print(f"JSON: {args.json}")
     if args.strict and (
         report.agreement < TARGET_AGREEMENT or report.stable_injections < len(report.injections)
     ):
