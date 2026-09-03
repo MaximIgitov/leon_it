@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -60,6 +62,44 @@ async def test_append_is_sequential_and_reports_offset_conflict(storage: LocalSt
     assert gap.value.current_size == 0
 
 
+async def test_concurrent_put_same_key_keeps_one_whole_variant(storage: LocalStorage) -> None:
+    async def chunks(byte: bytes) -> AsyncIterator[bytes]:
+        for _ in range(5):
+            yield byte * 3
+            await asyncio.sleep(0)  # чередуемся с конкурентом посреди записи
+
+    sizes = await asyncio.gather(
+        storage.put("race.bin", chunks(b"a")), storage.put("race.bin", chunks(b"b"))
+    )
+    assert sizes == [15, 15]
+    # Победил один из вариантов целиком — не смесь и не пустой файл.
+    assert await _collect(storage.open_range("race.bin")) in (b"a" * 15, b"b" * 15)
+    assert not list(storage.root.glob("*.part"))
+
+
+async def test_concurrent_append_same_offset_admits_exactly_one(storage: LocalStorage) -> None:
+    # Повтор потерянного ответа пришёл одновременно с оригиналом: дописать чанк
+    # должен ровно один, остальные получают конфликт с фактическим размером.
+    results = await asyncio.gather(
+        *(storage.append("race/chunks.webm", b"abc", 0) for _ in range(8)),
+        return_exceptions=True,
+    )
+    successes = [result for result in results if isinstance(result, int)]
+    conflicts = [result for result in results if isinstance(result, StorageOffsetConflict)]
+    assert successes == [3], results
+    assert len(conflicts) == 7 and all(c.current_size == 3 for c in conflicts), results
+    assert await _collect(storage.open_range("race/chunks.webm")) == b"abc"
+    assert len(storage._append_locks) == 0  # блокировки не копятся по ключам
+
+
+async def test_append_conflict_on_missing_file_leaves_no_empty_object(
+    storage: LocalStorage,
+) -> None:
+    with pytest.raises(StorageOffsetConflict):
+        await storage.append("up/late.webm", b"x", 5)
+    assert not await storage.exists("up/late.webm")
+
+
 async def test_delete_is_idempotent_and_missing_size_raises(storage: LocalStorage) -> None:
     await storage.put("d.txt", b"1")
     await storage.delete("d.txt")
@@ -93,6 +133,22 @@ def test_keys_are_normalized(storage: LocalStorage) -> None:
     assert normalize_key("a//b/./c.webm") == "a/b/c.webm"
     assert normalize_key("a\\b\\c.webm") == "a/b/c.webm"
     assert storage.path_for("a/b/c.webm") == (storage.root / "a" / "b" / "c.webm")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="префикс \\\\?\\ бывает только у путей Windows")
+def test_path_for_tolerates_extended_length_prefix(
+    storage: LocalStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # В гонке с mkdir соседней загрузки realpath оставляет у ещё не созданного
+    # файла префикс \\?\ — честный ключ не должен считаться выходом за корень.
+    original = Path.resolve
+
+    def prefixed(self: Path, strict: bool = False) -> Path:
+        resolved = original(self, strict=strict)
+        return Path("\\\\?\\" + str(resolved)) if self.name == "chunks.webm" else resolved
+
+    monkeypatch.setattr(Path, "resolve", prefixed)
+    assert storage.path_for("race/chunks.webm") == storage.root / "race" / "chunks.webm"
 
 
 def test_get_storage_uses_media_root_from_settings() -> None:

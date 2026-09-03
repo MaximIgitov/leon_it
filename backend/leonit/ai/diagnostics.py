@@ -12,7 +12,8 @@ from dataclasses import asdict, dataclass
 from time import perf_counter
 
 from leonit.ai.config import LLM_ROLES, RoleConfig, all_role_configs
-from leonit.ai.gateway import get_llm, get_stt, get_tts
+from leonit.ai.gateway import build_llm, build_stt, build_tts, get_llm, get_stt, get_tts
+from leonit.ai.http_client import new_http_client
 from leonit.ai.providers.fake import silence_wav
 from leonit.core.config import Settings
 
@@ -35,18 +36,28 @@ class RoleStatus:
 
 
 async def _probe(config: RoleConfig, settings: Settings | None) -> None:
-    if config.role in LLM_ROLES:
-        await get_llm(config.role, settings=settings).chat(
-            [{"role": "user", "content": "Ответь одним словом: ок"}], max_tokens=5
-        )
-    elif config.role == "stt":
-        await get_stt(settings=settings).transcribe(
-            silence_wav(0.5), content_type="audio/wav", language="ru"
-        )
-    elif config.role == "tts":
-        await get_tts(settings=settings).synthesize("Проверка связи.")
-    else:  # pragma: no cover - новые роли должны получить свою проверку
-        raise ValueError(f"no probe for role {config.role!r}")
+    # Проверка с переданными настройками (форма «настройки моделей» до их
+    # сохранения) не должна оседать в кэше шлюза: провайдер и его пул
+    # соединений живут ровно до конца проверки.
+    adhoc = settings is not None
+    http = None
+    if adhoc and config.provider != "fake":
+        http = new_http_client(config.base_url, config.proxy_url)
+    try:
+        if config.role in LLM_ROLES:
+            llm = build_llm(config, http=http) if adhoc else get_llm(config.role)
+            await llm.chat([{"role": "user", "content": "Ответь одним словом: ок"}], max_tokens=5)
+        elif config.role == "stt":
+            stt = build_stt(config, http=http) if adhoc else get_stt()
+            await stt.transcribe(silence_wav(0.5), content_type="audio/wav", language="ru")
+        elif config.role == "tts":
+            tts = build_tts(config, http=http) if adhoc else get_tts()
+            await tts.synthesize("Проверка связи.")
+        else:  # pragma: no cover - новые роли должны получить свою проверку
+            raise ValueError(f"no probe for role {config.role!r}")
+    finally:
+        if http is not None:
+            await http.aclose()
 
 
 async def check_role(config: RoleConfig, *, settings: Settings | None = None) -> RoleStatus:

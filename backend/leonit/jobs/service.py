@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import Update, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,11 @@ _MAX_ERROR_CHARS = 8000
 def backoff_delay_s(attempts: int) -> int:
     """Пауза перед повтором: 5с × 2^attempts, не больше 10 минут."""
     return min(BACKOFF_BASE_S * 2 ** max(attempts, 0), BACKOFF_CAP_S)
+
+
+def _expired_lease(now: datetime):
+    """Условие «зомби»: задача running, но воркер перестал продлевать аренду."""
+    return and_(Job.status == JobStatus.running, Job.lease_until < now)
 
 
 async def enqueue(
@@ -102,13 +107,12 @@ async def claim_next(
 ) -> Job | None:
     """Захватить следующую готовую задачу (или зомби с истёкшей арендой)."""
     now = now or utcnow()
-    expired_lease = and_(Job.status == JobStatus.running, Job.lease_until < now)
 
     # Зомби, у которых попытки уже кончились, переводим в failed отдельно:
     # захватывать их бессмысленно, а висеть в running они не должны.
     await session.execute(
         update(Job)
-        .where(expired_lease, Job.attempts >= Job.max_attempts)
+        .where(_expired_lease(now), Job.attempts >= Job.max_attempts)
         .values(
             status=JobStatus.failed,
             lease_until=None,
@@ -120,18 +124,39 @@ async def claim_next(
         .execution_options(synchronize_session=False)
     )
 
-    ready = or_(and_(Job.status == JobStatus.queued, Job.run_after <= now), expired_lease)
+    if kinds is not None and not kinds:
+        return None
+    skip_locked = session.bind is not None and session.bind.dialect.name == "postgresql"
+    statement = claim_statement(worker_id, kinds, now=now, lease_s=lease_s, skip_locked=skip_locked)
+    job = (await session.scalars(statement)).one_or_none()
+    if job is not None:
+        # RETURNING отдаёт строку до синхронизации identity map: обновляем объект.
+        await session.refresh(job)
+    return job
+
+
+def claim_statement(
+    worker_id: str,
+    kinds: Sequence[str] | None,
+    *,
+    now: datetime,
+    lease_s: int,
+    skip_locked: bool,
+) -> Update:
+    """Собрать ``UPDATE … RETURNING`` захвата задачи (отдельно — ради проверки SQL).
+
+    ``skip_locked`` включает ``FOR UPDATE SKIP LOCKED`` в подзапросе кандидата:
+    параллельные воркеры не ждут друг друга и не берут одну задачу. SQLite этого
+    не умеет, там воркер один.
+    """
+    ready = or_(and_(Job.status == JobStatus.queued, Job.run_after <= now), _expired_lease(now))
     candidate = select(Job.id).where(ready)
     if kinds is not None:
-        if not kinds:
-            return None
         candidate = candidate.where(Job.kind.in_(list(kinds)))
     candidate = candidate.order_by(Job.run_after, Job.created_at).limit(1)
-    if session.bind is not None and session.bind.dialect.name == "postgresql":
-        # SKIP LOCKED: параллельные воркеры не ждут друг друга и не берут одну задачу.
+    if skip_locked:
         candidate = candidate.with_for_update(skip_locked=True)
-
-    statement = (
+    return (
         update(Job)
         .where(Job.id == candidate.scalar_subquery())
         .values(
@@ -145,11 +170,6 @@ async def claim_next(
         .returning(Job)
         .execution_options(synchronize_session=False)
     )
-    job = (await session.scalars(statement)).one_or_none()
-    if job is not None:
-        # RETURNING отдаёт строку до синхронизации identity map: обновляем объект.
-        await session.refresh(job)
-    return job
 
 
 async def heartbeat(
