@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import socket
+import time
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -34,6 +35,8 @@ from leonit.jobs.registry import (
     load_all_handlers,
     registered_kinds,
     resource_for,
+    startup_hooks,
+    tick_hooks,
 )
 from leonit.models import load_all_models
 
@@ -54,6 +57,7 @@ class Worker:
         concurrency: dict[str, int] | None = None,
         session_maker: async_sessionmaker[AsyncSession] | None = None,
         shutdown_timeout_s: float = 60.0,
+        tick_interval_s: float = 3600.0,
         kinds: Sequence[str] | None = None,
     ) -> None:
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
@@ -61,6 +65,7 @@ class Worker:
         self.lease_s = lease_s
         self.heartbeat_s = heartbeat_s
         self.shutdown_timeout_s = shutdown_timeout_s
+        self.tick_interval_s = tick_interval_s
         # Ограничение видов задач: отдельный пул воркеров под тяжёлые задачи или
         # изоляция в тестах. None — брать любые, в том числе незарегистрированные.
         self.kinds = list(kinds) if kinds is not None else None
@@ -88,6 +93,24 @@ class Worker:
     def request_stop(self) -> None:
         self._stop.set()
 
+    async def run_startup_hooks(self) -> None:
+        """Выполнить хуки старта; сбой одного (например, базы) не останавливает воркер."""
+        for hook in startup_hooks():
+            try:
+                await hook(self.session_maker)
+            except Exception:
+                name = getattr(hook, "__name__", repr(hook))
+                log.exception("worker %s: startup hook %s failed", self.worker_id, name)
+
+    async def run_tick_hooks(self) -> None:
+        """Выполнить периодические хуки; сбой одного не мешает остальным и воркеру."""
+        for hook in tick_hooks():
+            try:
+                await hook(self.session_maker)
+            except Exception:
+                name = getattr(hook, "__name__", repr(hook))
+                log.exception("worker %s: tick hook %s failed", self.worker_id, name)
+
     async def run_once(self) -> bool:
         """Захватить и обработать одну задачу до конца; False — очередь пуста."""
         job = await self._claim()
@@ -100,8 +123,12 @@ class Worker:
     async def run(self) -> None:
         self._install_signal_handlers()
         log.info("worker %s started, concurrency=%s", self.worker_id, self.concurrency)
+        last_tick = time.monotonic()
         try:
             while not self.stopping:
+                if time.monotonic() - last_tick >= self.tick_interval_s:
+                    last_tick = time.monotonic()
+                    await self.run_tick_hooks()
                 job = await self._claim()
                 if job is None:
                     with contextlib.suppress(TimeoutError):
@@ -279,6 +306,8 @@ class Worker:
 
 async def _serve(worker: Worker, *, once: bool) -> None:
     try:
+        await worker.run_startup_hooks()
+        await worker.run_tick_hooks()
         if once:
             while await worker.run_once():
                 pass

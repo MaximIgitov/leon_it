@@ -24,7 +24,8 @@ RESOURCES: tuple[Resource, ...] = ("llm", "ffmpeg", "default")
 JOB_HANDLER_MODULES: tuple[str, ...] = (
     "leonit.jobs.builtin",
     "leonit.notifications.jobs",
-    "leonit.interviews.jobs",
+    "leonit.evaluation.jobs",
+    "leonit.pipeline.jobs",
 )
 
 
@@ -94,3 +95,38 @@ def unregister(kind: str) -> None:
 def load_all_handlers() -> None:
     for module in JOB_HANDLER_MODULES:
         importlib.import_module(module)
+
+
+# Действия при старте воркера (поставить периодическую задачу и т. п.).
+# Регистрируются теми же модулями, что и обработчики, поэтому воркер ничего не
+# знает о предметных областях — они сами говорят, что нужно сделать на старте.
+StartupHook = Callable[[async_sessionmaker[AsyncSession]], Awaitable[None]]
+_startup_hooks: list[StartupHook] = []
+
+
+def on_worker_start(func: StartupHook) -> StartupHook:
+    if func not in _startup_hooks:
+        _startup_hooks.append(func)
+    return func
+
+
+def startup_hooks() -> list[StartupHook]:
+    return list(_startup_hooks)
+
+
+# Периодические действия воркера (раз в ``Worker.tick_interval_s``, впервые —
+# сразу после хуков старта): страховка расписаний, возврат брошенных сущностей
+# в очередь. В отличие от самопланирующихся задач, тик не зависит от того,
+# успешно ли выполнилась предыдущая итерация.
+TickHook = StartupHook
+_tick_hooks: list[TickHook] = []
+
+
+def on_worker_tick(func: TickHook) -> TickHook:
+    if func not in _tick_hooks:
+        _tick_hooks.append(func)
+    return func
+
+
+def tick_hooks() -> list[TickHook]:
+    return list(_tick_hooks)

@@ -57,6 +57,7 @@ POSTGRES_USER=leonit
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 
 JWT_SECRET=$(openssl rand -hex 32)
+DATA_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 METRICS_TOKEN=$(openssl rand -hex 16)
 LOG_LEVEL=INFO
 
