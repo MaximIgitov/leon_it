@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -24,6 +25,7 @@ from leonit.core.errors import ConflictError, NotFoundError, ValidationFailedErr
 from leonit.core.logging import get_logger
 from leonit.core.storage import get_storage
 from leonit.core.time import aware, utcnow
+from leonit.interviews import followups
 from leonit.interviews.code import is_submitted, validate_code
 from leonit.interviews.models import Answer, AnswerStatus, InterviewEvent
 from leonit.interviews.schemas import (
@@ -291,6 +293,24 @@ class InterviewRoomService:
         await self.session.commit()
         return Revealed(question, revealed_at, audio_url, audio_type, avatar)
 
+    async def _parent_answer_id(
+        self, interview: Interview, question: dict[str, Any], answers: list[Answer]
+    ) -> uuid.UUID | None:
+        """Для уточняющего вопроса — зачётный ответ на исходный вопрос."""
+        parent_index = question.get("followup_of")
+        if parent_index is None:
+            return None
+        rows = [
+            answer
+            for answer in await self._answers(interview.id)
+            if answer.question_index == parent_index
+            and answer.is_final
+            and answer.parent_answer_id is None
+        ]
+        if not rows:
+            return None
+        return max(rows, key=lambda answer: answer.attempt).id
+
     async def create_answer(self, token: str, index: int, mime_type: str) -> Answer:
         interview, _, _ = await self._load(token)
         self._require_in_progress(interview)
@@ -324,6 +344,7 @@ class InterviewRoomService:
                 interview_id=interview.id,
                 question_index=index,
                 question_id=question["id"],
+                parent_answer_id=await self._parent_answer_id(interview, question, answers),
                 attempt=attempt,
                 status=AnswerStatus.recording,
                 media_content_type=content_type,
@@ -574,8 +595,62 @@ class InterviewRoomService:
             interview.current_question_index = index + 1
             await self.session.commit()
             return interview
+        if await self._add_followups(interview, vacancy):
+            interview.current_question_index = index + 1
+            await self.session.commit()
+            return interview
         await self._finish(interview, vacancy, organization)
         return interview
+
+    async def _add_followups(self, interview: Interview, vacancy: Vacancy) -> bool:
+        """Дописать блок уточняющих вопросов в снимок; True — есть что спросить.
+
+        Собирается один раз: повторный вызов видит отметку в снимке настроек и
+        сразу отдаёт False, поэтому «дальше» не зацикливается.
+        """
+        settings_snapshot = dict(interview.settings_snapshot or {})
+        if not settings_snapshot.get("followups_enabled") or settings_snapshot.get(
+            "followups_done"
+        ):
+            return False
+        snapshot = list(interview.question_snapshot or [])
+        answers = await self._answers(interview.id)
+        limit = int(settings_snapshot.get("followups_max") or 0)
+        generated = await followups.generate(vacancy.title, snapshot, answers, limit=limit)
+        settings_snapshot["followups_done"] = True
+        interview.settings_snapshot = settings_snapshot
+        if not generated:
+            return False
+        interview.question_snapshot = [*snapshot, *generated]
+        self._event(
+            interview,
+            "followups_added",
+            payload={"count": len(generated)},
+        )
+        return True
+
+    async def followups_status(self, token: str) -> dict[str, Any]:
+        """Готов ли блок уточнений: сколько ответов ещё обрабатывается.
+
+        Комната опрашивает эту ручку перед финалом и ждёт не дольше бюджета:
+        транскрипт нужен, чтобы было что уточнять, но держать кандидата у
+        экрана бесконечно нельзя.
+        """
+        interview, _, _ = await self._load(token)
+        settings_snapshot = interview.settings_snapshot or {}
+        snapshot = list(interview.question_snapshot or [])
+        if not settings_snapshot.get("followups_enabled"):
+            return {"enabled": False, "ready": True, "pending": 0, "wait_seconds": 0}
+        if settings_snapshot.get("followups_done"):
+            return {"enabled": True, "ready": True, "pending": 0, "wait_seconds": 0}
+        answers = await self._answers(interview.id)
+        pending = followups.pending_transcripts(snapshot, answers)
+        return {
+            "enabled": True,
+            "ready": pending == 0,
+            "pending": pending,
+            "wait_seconds": followups.FOLLOWUP_WAIT_S,
+        }
 
     async def _finish(
         self, interview: Interview, vacancy: Vacancy, organization: Organization
