@@ -95,6 +95,14 @@ export type ClientEvent = {
 
 const base = (token: string) => `/public/invitations/${encodeURIComponent(token)}`;
 
+/** Готов ли финальный блок уточняющих вопросов (нужны транскрипты ответов). */
+export type FollowupStatus = {
+  enabled: boolean;
+  ready: boolean;
+  pending: number;
+  wait_seconds: number;
+};
+
 export const roomApi = {
   start: (token: string, clientInfo: Record<string, unknown>) =>
     apiFetch<InterviewState>(`${base(token)}/start`, {
@@ -121,6 +129,8 @@ export const roomApi = {
       token: null,
     }),
   next: (token: string) => apiFetch<InterviewState>(`${base(token)}/next`, { method: "POST", token: null }),
+  followups: (token: string) =>
+    apiFetch<FollowupStatus>(`${base(token)}/followups`, { token: null }),
   saveCode: (token: string, questionId: string, body: CodeDraftBody) =>
     apiFetch<RoomAnswer>(`${base(token)}/answers/${encodeURIComponent(questionId)}/code`, {
       method: "PUT",

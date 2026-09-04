@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import uuid
 from collections.abc import AsyncIterator
 from datetime import timedelta
@@ -467,6 +468,20 @@ async def test_handler_with_wrong_signature_fails_without_retry(
     assert "TypeError" in (failed.last_error or "")
 
 
+async def _until(condition, *, timeout: float = 10.0, step: float = 0.02) -> None:
+    """Дождаться условия (значение или корутина) вместо сна на фиксированный срок."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        result = condition()
+        if inspect.isawaitable(result):
+            result = await result
+        if result:
+            return
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("условие не выполнилось за отведённое время")
+        await asyncio.sleep(step)
+
+
 async def test_worker_respects_resource_capacity(session: AsyncSession, kind: str) -> None:
     worker = Worker(
         worker_id="w-cap",
@@ -490,16 +505,21 @@ async def test_worker_respects_resource_capacity(session: AsyncSession, kind: st
         await service.enqueue(session, kind, {})
     await session.commit()
     run_task = asyncio.create_task(worker.run())
-    await asyncio.sleep(0.3)
+    # Ждём по условию, а не по времени: на медленном раннере фиксированный сон
+    # заканчивался раньше, чем воркер добирал очередь.
+    await _until(lambda: running == 1)
     assert peak == 1 and worker._inflight["ffmpeg"] == 1
     assert worker._claimable_kinds() == []
     release.set()
-    await asyncio.sleep(0.3)
+
+    async def all_done() -> bool:
+        rows = (await session.scalars(select(Job).where(Job.kind == kind))).all()
+        return bool(rows) and all(row.status == JobStatus.succeeded for row in rows)
+
+    await _until(all_done)
     worker.request_stop()
     await asyncio.wait_for(run_task, timeout=5)
     assert peak == 1
-    rows = (await session.scalars(select(Job).where(Job.kind == kind))).all()
-    assert {row.status for row in rows} == {JobStatus.succeeded}
 
 
 def test_registry_rejects_duplicates_and_bad_resources(kind: str) -> None:

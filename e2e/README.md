@@ -23,6 +23,33 @@ npm test
 `E2E_VIDEO=1` пишет видео каждого сценария в `test-results/` — из него
 собирается демо для лендинга.
 
+## Проекты
+
+| Проект | Что проверяет |
+|---|---|
+| `chromium` | сквозной путь кандидата и регрессия кабинета рекрутера на десктопе |
+| `mobile-chrome` | тот же путь кандидата на профиле Pixel 7: узкий экран, касания |
+
+```bash
+npm run test:desktop      # только десктоп
+npm run test:mobile       # только мобильный профиль
+```
+
+Сценарий `recruiter-flow.spec.ts` заполняет интервью через API (`completeInterview`),
+поэтому не зависит от камеры: он про кабинет — заключение, вкладку достоверности,
+решение, ссылку для нанимающего менеджера и дашборд.
+
+## Демо-видео для лендинга
+
+```bash
+E2E_VIDEO=1 npx playwright test --project=chromium candidate-flow
+```
+
+Playwright положит записи в `test-results/**/video.webm`. Файл лучшего прогона
+кладётся в `frontend/public/demo/interview-demo.mp4` (конвертация:
+`ffmpeg -i video.webm -c:v libx264 -crf 28 -c:a aac interview-demo.mp4`) —
+лендинг подхватит его автоматически, пока файла нет, там стоит заглушка.
+
 ## В CI
 
 Job `e2e` в `.github/workflows/ci.yml` запускается на `main` и не блокирует

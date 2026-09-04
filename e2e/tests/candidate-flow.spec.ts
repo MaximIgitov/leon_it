@@ -27,9 +27,11 @@ async function passDeviceCheck(page: Page): Promise<void> {
 
 /*
  * Сквозной сценарий кандидата: ссылка → согласия → проверка устройств →
- * тренировочный вопрос → два ответа на камеру → «интервью завершено».
- * Потом рекрутер видит ответы в карточке. Камера и микрофон — фейковые
- * устройства Chromium, запись настоящая (WebM).
+ * тренировочный вопрос → два ответа на камеру → «интервью завершено» →
+ * возврат по ссылке. Камера и микрофон — фейковые устройства Chromium, запись
+ * настоящая (WebM). Кабинет рекрутера проверяет recruiter-flow.spec.ts: там
+ * интервью заполняется через API, поэтому один прогон не зависит от того,
+ * отдаст ли браузер фейковую камеру второму контексту.
  */
 test("кандидат проходит интервью от ссылки до завершения", async ({ page }) => {
   const seed = await seedInterview();
@@ -68,33 +70,4 @@ test("кандидат проходит интервью от ссылки до 
   // Возврат по ссылке после завершения показывает финальную страницу.
   await page.goto(seed.link);
   await expect(page.getByRole("heading", { name: /Интервью уже завершено/ })).toBeVisible();
-});
-
-test("рекрутер видит ответы кандидата в карточке", async ({ page }) => {
-  const seed = await seedInterview();
-
-  // Кандидат отвечает на первый вопрос через интерфейс (быстрый путь).
-  await page.goto(seed.link);
-  const checkboxes = page.getByRole("checkbox");
-  await checkboxes.nth(0).click();
-  await checkboxes.nth(1).click();
-  await page.getByRole("button", { name: "Продолжить" }).click();
-  await passDeviceCheck(page);
-  await page.getByRole("button", { name: "Пропустить" }).click();
-  await page.getByRole("button", { name: "Показать вопрос" }).click();
-  await expect(page.getByRole("button", { name: "Завершить ответ" })).toBeVisible({ timeout: 15_000 });
-  await page.waitForTimeout(2500);
-  await page.getByRole("button", { name: "Завершить ответ" }).click();
-  await expect(page.getByText("Ответ сохранён.")).toBeVisible({ timeout: 30_000 });
-
-  // Рекрутер входит и открывает карточку.
-  await page.goto("/login");
-  await page.getByLabel("E-mail").fill(seed.email);
-  await page.getByLabel("Пароль").fill(seed.password);
-  await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page).toHaveURL(/\/dashboard/);
-  await page.goto(`/vacancies/${seed.vacancyId}/interviews/${seed.interviewId}`);
-  await expect(page.getByRole("heading", { name: "Иван Кандидат" })).toBeVisible();
-  await expect(page.getByText("1. Расскажите о своём опыте с Python")).toBeVisible();
-  await expect(page.locator("video").first()).toBeVisible();
 });

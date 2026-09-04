@@ -168,8 +168,39 @@ export type PublicReport = {
   notes: Note[];
   can_decide: boolean;
   can_note: boolean;
-  integrity: Record<string, unknown> | null;
+  integrity: IntegrityReport | null;
   expires_at: string;
+};
+
+export type IntegrityLevel = "info" | "attention" | "risk";
+
+export type IntegrityObservation = {
+  code: string;
+  level: IntegrityLevel;
+  title: string;
+  detail: string;
+  question_index: number | null;
+  evidence: Record<string, unknown>;
+  review: {
+    verdict: "confirmed" | "false_positive";
+    comment: string | null;
+    reviewer: string;
+    reviewed_at: string;
+  } | null;
+};
+
+export type IntegrityReport = {
+  level: IntegrityLevel;
+  level_label: string;
+  observations: IntegrityObservation[];
+  checked: boolean;
+  flags: number;
+};
+
+export const INTEGRITY_LEVEL_LABELS: Record<IntegrityLevel, string> = {
+  info: "Без замечаний",
+  attention: "Обратить внимание",
+  risk: "Высокий риск",
 };
 
 export const RECOMMENDATION_LABELS: Record<Recommendation, string> = {
@@ -191,6 +222,21 @@ export const reportsApi = {
   reprocess: (interviewId: string) =>
     apiFetch<void>(`/interviews/${interviewId}/reprocess`, { method: "POST" }),
   ranking: (vacancyId: string) => apiFetch<RankingRow[]>(`/vacancies/${vacancyId}/ranking`),
+  integrity: (interviewId: string) =>
+    apiFetch<IntegrityReport>(`/interviews/${interviewId}/integrity`),
+  reviewIntegrity: (
+    interviewId: string,
+    body: {
+      code: string;
+      question_index?: number | null;
+      verdict: "confirmed" | "false_positive";
+      comment?: string;
+    },
+  ) =>
+    apiFetch<IntegrityReport>(`/interviews/${interviewId}/integrity/review`, {
+      method: "POST",
+      body,
+    }),
   decide: (interviewId: string, body: { decision: Decision; note?: string }) =>
     apiFetch<Interview>(`/interviews/${interviewId}/decision`, { method: "POST", body }),
   notes: (interviewId: string) => apiFetch<Note[]>(`/interviews/${interviewId}/notes`),

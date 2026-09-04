@@ -132,7 +132,7 @@ jobs:
       - name: Playwright
         working-directory: e2e
         run: npm ci && npx playwright install --with-deps chromium
-      - name: Сквозной сценарий
+      - name: Сквозные сценарии (десктоп и мобильный профиль)
         working-directory: e2e
         run: npm test
         env:

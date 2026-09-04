@@ -126,6 +126,15 @@ class InterviewState(BaseModel):
     code_runner: CodeRunnerOut
 
 
+class FollowupStatus(BaseModel):
+    """Состояние блока уточняющих вопросов перед финалом интервью."""
+
+    enabled: bool
+    ready: bool
+    pending: int
+    wait_seconds: int
+
+
 class RevealOut(BaseModel):
     question: SnapshotQuestion
     revealed_at: datetime

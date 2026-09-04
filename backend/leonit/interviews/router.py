@@ -24,6 +24,7 @@ from leonit.interviews.schemas import (
     CodeSubmissionIn,
     EventsAccepted,
     EventsBatch,
+    FollowupStatus,
     InterviewEventOut,
     InterviewState,
     RevealOut,
@@ -189,6 +190,15 @@ async def next_question(token: str, session: DbSession, request: Request) -> Int
     service = InterviewRoomService(session)
     await service.next_question(token)
     return _state(*await service.state(token))
+
+
+@room_router.get("/followups", response_model=FollowupStatus)
+async def followups_status(token: str, session: DbSession, request: Request) -> FollowupStatus:
+    """Готов ли финальный блок уточнений: комната ждёт транскрипты в пределах бюджета."""
+    _limit(request)
+    return FollowupStatus.model_validate(
+        await InterviewRoomService(session).followups_status(token)
+    )
 
 
 @room_router.post("/events", response_model=EventsAccepted)

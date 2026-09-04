@@ -8,9 +8,17 @@ import { CodeEditor, clearDraft, draftStorageKey, type CodeDraft } from "@/compo
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useFaceWatch } from "@/hooks/use-face-watch";
 import { useInterviewTelemetry } from "@/hooks/use-interview-telemetry";
 import { ApiError, API_BASE_URL } from "@/lib/api/client";
-import { roomApi, type AvatarInfo, type InterviewState, type RoomAnswer, type SnapshotQuestion } from "@/lib/api/room";
+import {
+  roomApi,
+  type AvatarInfo,
+  type FollowupStatus,
+  type InterviewState,
+  type RoomAnswer,
+  type SnapshotQuestion,
+} from "@/lib/api/room";
 import { AnswerRecorder, type UploadProgress } from "@/lib/media/recorder";
 import type { DeviceCheckResult } from "@/components/interview/device-check";
 
@@ -72,6 +80,7 @@ export function InterviewRoom({
   const [resumed, setResumed] = useState(false);
   const [codeBusy, setCodeBusy] = useState<"submit" | "run" | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [waitingFollowups, setWaitingFollowups] = useState(false);
   const recorderRef = useRef<AnswerRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -86,6 +95,12 @@ export function InterviewRoom({
     [index],
   );
   const telemetry = useInterviewTelemetry(token, getContext, phase !== "loading" && phase !== "done");
+
+  // Сколько лиц в кадре: считается локально во время записи, наружу уходит
+  // только число (см. use-face-watch).
+  useFaceWatch(videoRef.current, phase === "recording", (count) =>
+    telemetry.push("faces", { count }),
+  );
 
   // Превью камеры на протяжении всей комнаты.
   useEffect(() => {
@@ -257,6 +272,32 @@ export function InterviewRoom({
     }
   };
 
+  /** Ожидание блока уточнений: показываем подпись и опрашиваем статус. */
+  const waitForFollowups = async () => {
+    let status: FollowupStatus;
+    try {
+      status = await roomApi.followups(token);
+    } catch {
+      return;
+    }
+    if (!status.enabled || status.ready) return;
+    setWaitingFollowups(true);
+    const deadline = Date.now() + status.wait_seconds * 1000;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const next = await roomApi.followups(token);
+          if (next.ready) return;
+        } catch {
+          return;
+        }
+      }
+    } finally {
+      setWaitingFollowups(false);
+    }
+  };
+
   const retake = () => {
     if (!question) return;
     void startRecording(question);
@@ -265,6 +306,9 @@ export function InterviewRoom({
   const goNext = async () => {
     clearDraftTimer();
     try {
+      // Перед финалом ждём транскрипты для уточняющих вопросов — но не дольше
+      // бюджета: держать кандидата у экрана из-за очереди нельзя.
+      if (index + 1 >= total) await waitForFollowups();
       const next = await roomApi.next(token);
       if (question?.kind === "code") clearDraft(draftStorageKey(token, question.id));
       setState(next);
@@ -357,7 +401,11 @@ export function InterviewRoom({
   const uploadPercent = progress && progress.bytesTotal > 0 ? Math.round((progress.bytesUploaded / progress.bytesTotal) * 100) : 0;
   const remaining = question ? Math.max(0, question.max_answer_seconds - elapsed) : 0;
   const isCode = question?.kind === "code";
-  const nextLabel = index + 1 < total ? "Следующий вопрос" : "Завершить интервью";
+  const nextLabel = waitingFollowups
+    ? "Готовим уточняющие вопросы…"
+    : index + 1 < total
+      ? "Следующий вопрос"
+      : "Завершить интервью";
 
   if (phase === "loading") return <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />;
 
