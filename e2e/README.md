@@ -46,9 +46,17 @@ E2E_VIDEO=1 npx playwright test --project=chromium candidate-flow
 ```
 
 Playwright положит записи в `test-results/**/video.webm`. Файл лучшего прогона
-кладётся в `frontend/public/demo/interview-demo.mp4` (конвертация:
-`ffmpeg -i video.webm -c:v libx264 -crf 28 -c:a aac interview-demo.mp4`) —
-лендинг подхватит его автоматически, пока файла нет, там стоит заглушка.
+конвертируется и кладётся в `frontend/public/demo/interview-demo.mp4`:
+
+```bash
+ffmpeg -i test-results/**/video.webm -vf "scale=1280:-2,fps=24"   -c:v libx264 -crf 30 -preset slow -movflags +faststart -an   ../frontend/public/demo/interview-demo.mp4
+```
+
+Звук вырезается (`-an`): в фейковой камере его нет, а лишняя дорожка только
+утяжеляет файл. Лендинг подхватывает видео автоматически; пока файла нет,
+показывается заглушка с постером.
+
+Для записи нужен ffmpeg из дистрибутива Playwright: `npx playwright install ffmpeg`.
 
 ## В CI
 
