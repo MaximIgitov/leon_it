@@ -18,6 +18,7 @@ from leonit.core.errors import ConflictError, NotFoundError, PermissionDeniedErr
 from leonit.core.logging import get_logger
 from leonit.core.time import aware, utcnow
 from leonit.evaluation.models import Evaluation
+from leonit.integrity.service import integrity_report
 from leonit.interviews.code import code_submission_out, report_transcript
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.interviews.service import InterviewRoomService
@@ -271,6 +272,7 @@ class ReportService:
             "vacancy_title": vacancy.title if vacancy else "",
             "evaluation": await self.evaluation_payload(interview.id),
             "answers": self._answer_rows(interview, answers, with_media=with_media),
+            "integrity": await integrity_report(self.session, interview.id),
         }
 
     async def public_report(
@@ -308,7 +310,12 @@ class ReportService:
             "notes": await self._notes(interview.id),
             "can_decide": True,
             "can_note": True,
-            "integrity": None,
+            # Детали достоверности видны только если владелец ссылки их включил.
+            "integrity": (
+                await integrity_report(self.session, interview.id)
+                if share.include_integrity
+                else None
+            ),
             "expires_at": aware(share.expires_at),
         }
 

@@ -12,6 +12,7 @@ import { AnswerPlayer, type AnswerPlayerHandle } from "@/components/reports/answ
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { DecisionPanel } from "@/components/reports/decision-panel";
 import { EvaluationView, RecommendationBadge } from "@/components/reports/evaluation-view";
+import { IntegrityBadge, IntegrityPanel } from "@/components/reports/integrity-panel";
 import { NotesPanel } from "@/components/reports/notes-panel";
 import { SharePanel } from "@/components/reports/share-panel";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { interviewsApi, type Interview } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
-import { reportsApi, type AnswerDetail, type Decision, type Evaluation, type Note } from "@/lib/api/reports";
+import {
+  reportsApi,
+  type AnswerDetail,
+  type Decision,
+  type Evaluation,
+  type IntegrityReport,
+  type Note,
+} from "@/lib/api/reports";
 
 const PROCESSING_STATUSES = new Set(["completed", "processing"]);
 
@@ -32,6 +40,7 @@ export default function InterviewReportPage() {
   const [answers, setAnswers] = useState<AnswerDetail[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const playerRefs = useRef<Map<string, React.RefObject<AnswerPlayerHandle>>>(new Map());
 
@@ -55,6 +64,11 @@ export default function InterviewReportPage() {
         setEvaluation(await reportsApi.evaluation(params.interviewId));
       } catch {
         setEvaluation(null);
+      }
+      try {
+        setIntegrity(await reportsApi.integrity(params.interviewId));
+      } catch {
+        setIntegrity(null);
       }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Не удалось загрузить интервью");
@@ -128,6 +142,7 @@ export default function InterviewReportPage() {
           <div className="flex flex-wrap items-center gap-2">
             <InterviewStatusBadge status={interview.status} />
             <RecommendationBadge value={evaluation?.recommendation ?? null} score={evaluation?.fit_score ?? null} />
+            <IntegrityBadge report={integrity} />
             {can("candidate.write") ? (
               <Button variant="outline" size="sm" onClick={reprocess}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Переобработать
@@ -153,6 +168,9 @@ export default function InterviewReportPage() {
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="answers">Ответы ({answers.length})</TabsTrigger>
           <TabsTrigger value="evaluation">Заключение</TabsTrigger>
+          <TabsTrigger value="integrity">
+            Достоверность{integrity && integrity.flags > 0 ? ` (${integrity.flags})` : ""}
+          </TabsTrigger>
           <TabsTrigger value="decision">Решение и заметки</TabsTrigger>
           {can("report.share") ? <TabsTrigger value="share">Доступ</TabsTrigger> : null}
         </TabsList>
@@ -190,6 +208,26 @@ export default function InterviewReportPage() {
               </Card>
             ))
           )}
+        </TabsContent>
+
+        <TabsContent value="integrity">
+          <IntegrityPanel
+            report={integrity}
+            readOnly={!can("report.decide")}
+            onReview={async (observation, verdict) => {
+              try {
+                setIntegrity(
+                  await reportsApi.reviewIntegrity(params.interviewId, {
+                    code: observation.code,
+                    question_index: observation.question_index,
+                    verdict,
+                  }),
+                );
+              } catch (caught) {
+                fail(caught, "Не удалось сохранить решение по наблюдению");
+              }
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="evaluation">

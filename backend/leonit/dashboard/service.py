@@ -44,6 +44,7 @@ from leonit.dashboard.schemas import (
     VacancyRef,
 )
 from leonit.evaluation.models import Evaluation, EvaluationStatus
+from leonit.integrity.service import flags_rate
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.vacancies.models import Vacancy, VacancyStatus
 
@@ -242,6 +243,13 @@ class DashboardService:
     ) -> DashboardOverview:
         scope = await self.scope(actor, vacancy_id)
         cohort = [*scope.interviews(), *self._in_period(period)]
+        # Достоверность считаем только по завершённым интервью: у брошенных
+        # записей событий нет, и они бы занижали долю флагов.
+        completed_ids = list(
+            await self.session.scalars(
+                select(Interview.id).where(*cohort, Interview.completed_at.is_not(None))
+            )
+        )
 
         counts = (
             await self.session.execute(
@@ -363,7 +371,7 @@ class DashboardService:
             ai_agreement_pairs=len(pairs),
             quote_verification_rate=_ratio(verified, len(checked)),
             unverified_quotes_evaluations=len(checked) - verified,
-            flags_rate=0.0,
+            flags_rate=await flags_rate(self.session, completed_ids) or 0.0,
             funnel=funnel,
             recommendation_breakdown=RecommendationBreakdown(**recommendations),
             decision_breakdown=DecisionBreakdown(

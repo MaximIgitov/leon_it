@@ -9,6 +9,7 @@ import { AnswerPlayer, type AnswerPlayerHandle } from "@/components/reports/answ
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { DecisionPanel } from "@/components/reports/decision-panel";
 import { EvaluationView, RecommendationBadge } from "@/components/reports/evaluation-view";
+import { IntegrityBadge, IntegrityPanel } from "@/components/reports/integrity-panel";
 import { NotesPanel } from "@/components/reports/notes-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -80,11 +81,15 @@ export default function SharedReportPage() {
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-2xl font-bold tracking-tight">{report.candidate_name}</h1>
               <RecommendationBadge value={report.evaluation?.recommendation ?? null} score={report.evaluation?.fit_score ?? null} />
+              <IntegrityBadge report={report.integrity} />
             </div>
             <Tabs defaultValue="answers">
               <TabsList className="mb-4 flex-wrap">
                 <TabsTrigger value="answers">Ответы ({report.answers.length})</TabsTrigger>
                 <TabsTrigger value="evaluation">Заключение</TabsTrigger>
+                {report.integrity ? (
+                  <TabsTrigger value="integrity">Достоверность</TabsTrigger>
+                ) : null}
                 <TabsTrigger value="decision">Решение и заметки</TabsTrigger>
               </TabsList>
               <TabsContent value="answers" className="space-y-4">
@@ -110,6 +115,12 @@ export default function SharedReportPage() {
                   </Card>
                 ))}
               </TabsContent>
+              {report.integrity ? (
+                <TabsContent value="integrity">
+                  <IntegrityPanel report={report.integrity} readOnly />
+                </TabsContent>
+              ) : null}
+
               <TabsContent value="evaluation">
                 {report.evaluation?.output ? (
                   <EvaluationView output={report.evaluation.output} onSeek={seek} />

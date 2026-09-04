@@ -8,6 +8,7 @@ import { CodeEditor, clearDraft, draftStorageKey, type CodeDraft } from "@/compo
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useFaceWatch } from "@/hooks/use-face-watch";
 import { useInterviewTelemetry } from "@/hooks/use-interview-telemetry";
 import { ApiError, API_BASE_URL } from "@/lib/api/client";
 import { roomApi, type AvatarInfo, type InterviewState, type RoomAnswer, type SnapshotQuestion } from "@/lib/api/room";
@@ -86,6 +87,12 @@ export function InterviewRoom({
     [index],
   );
   const telemetry = useInterviewTelemetry(token, getContext, phase !== "loading" && phase !== "done");
+
+  // Сколько лиц в кадре: считается локально во время записи, наружу уходит
+  // только число (см. use-face-watch).
+  useFaceWatch(videoRef.current, phase === "recording", (count) =>
+    telemetry.push("faces", { count }),
+  );
 
   // Превью камеры на протяжении всей комнаты.
   useEffect(() => {
