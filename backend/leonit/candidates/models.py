@@ -119,7 +119,11 @@ class Candidate(TimestampMixin, Base):
     resume_text: Mapped[str | None] = mapped_column(Text)
     # Внешние идентификаторы для интеграций (HH, Huntflow).
     external_ref: Mapped[str | None] = mapped_column(String(128), index=True)
+    # Согласие на рассылку вакансий (маркетинг) — отдельно от письма с обратной
+    # связью по своему интервью: его кандидат ждёт, и оно уходит, пока он не
+    # отписался явно (``unsubscribed_at``).
     newsletter_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    unsubscribed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -155,6 +159,8 @@ class Interview(TimestampMixin, Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Когда кандидату ушло напоминание о скором истечении ссылки (один раз).
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

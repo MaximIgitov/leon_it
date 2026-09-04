@@ -476,6 +476,14 @@ function InvitesCard() {
   );
 }
 
+const EMAIL_KIND_LABELS: Record<string, string> = {
+  "interview.invitation": "Приглашение",
+  "interview.reminder": "Напоминание",
+  "interview.completed": "Интервью завершено",
+  "interview.evaluation_ready": "Заключение готово",
+  "interview.candidate_feedback": "Обратная связь кандидату",
+};
+
 function EmailsCard() {
   const showError = useErrorToast();
   const [emails, setEmails] = useState<EmailMessage[] | null>(null);
@@ -509,6 +517,7 @@ function EmailsCard() {
             <TableHeader>
               <TableRow>
                 <TableHead>Кому</TableHead>
+                <TableHead>Тип</TableHead>
                 <TableHead>Тема</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead>Когда</TableHead>
@@ -522,6 +531,9 @@ function EmailsCard() {
                   onClick={() => setOpenId(openId === email.id ? null : email.id)}
                 >
                   <TableCell className="text-sm">{email.to_email}</TableCell>
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {EMAIL_KIND_LABELS[email.kind] ?? email.kind}
+                  </TableCell>
                   <TableCell className="text-sm">
                     {email.subject}
                     {openId === email.id ? (

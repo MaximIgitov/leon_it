@@ -33,6 +33,7 @@ from leonit.interviews.router import room_router
 from leonit.interviews.router import staff_router as interview_staff_router
 from leonit.legal.router import router as legal_router
 from leonit.media.router import router as media_router
+from leonit.notifications.router import public_router as unsubscribe_router
 from leonit.notifications.router import router as emails_router
 from leonit.public_api.docs import API_DESCRIPTION, OPENAPI_TAGS
 from leonit.public_api.docs import router as api_docs_router
@@ -58,6 +59,7 @@ ROUTERS: list[APIRouter] = [
     reports_router,
     public_reports_router,
     emails_router,
+    unsubscribe_router,
     assistant_router,
     api_tokens_router,
     public_api_router,
