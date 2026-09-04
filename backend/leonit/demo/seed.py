@@ -1,6 +1,8 @@
 """Сид демо-данных: организация со всеми ролями, вакансии, воронка кандидатов, заключения.
 
     python -m leonit.demo.seed --password <пароль> [--email demo@leonit.ru]
+                               [--organization "Napoleon IT"]
+                               [--recruiter-email …] [--manager-email …]
                                [--evaluate dataset|real|none] [--json]
 
 Идемпотентен: владелец ищется по e-mail, вакансии — по названию, кандидаты — по
@@ -79,6 +81,10 @@ log = get_logger(__name__)
 DATASET_DIR = Path(__file__).resolve().parents[2] / "evals" / "dataset"
 DEFAULT_EMAIL = "demo@leonit.ru"
 ORGANIZATION_NAME = "Napoleon IT · демо"
+# Имена сотрудников подставляются в аккаунты; e-mail задаются параметрами.
+OWNER_NAME = "Владелец"
+RECRUITER_NAME = "Рекрутер"
+MANAGER_NAME = "Нанимающий менеджер"
 DEMO_MODEL = "demo-dataset"
 # Кейсы с инъекциями (07–09) в демо не нужны: они для eval-контура.
 CASE_FILES = ("01", "02", "03", "04", "05", "06")
@@ -304,12 +310,20 @@ class DemoSeeder:
         email: str,
         password: str,
         evaluate: str,
+        organization: str = ORGANIZATION_NAME,
+        recruiter_email: str | None = None,
+        manager_email: str | None = None,
         dataset_dir: Path = DATASET_DIR,
     ) -> None:
         self.session = session
         self.email = email.lower()
         self.password = password
         self.evaluate = evaluate
+        self.organization = organization
+        # По умолчанию адреса сотрудников выводятся из адреса владельца
+        # плюс-адресацией: demo@… → demo+recruiter@…
+        self.recruiter_email = (recruiter_email or email.replace("@", "+recruiter@", 1)).lower()
+        self.manager_email = (manager_email or email.replace("@", "+manager@", 1)).lower()
         self.dataset_dir = dataset_dir
         self.accounts = AccountsService(session)
         self.now = utcnow()
@@ -324,8 +338,8 @@ class DemoSeeder:
                 RegisterRequest(
                     email=self.email,
                     password=self.password,
-                    full_name="Демо Владелец",
-                    organization_name=ORGANIZATION_NAME,
+                    full_name=f"{OWNER_NAME} · {self.organization}",
+                    organization_name=self.organization,
                 )
             )
         actor = await self.accounts.get_actor(user)
@@ -617,8 +631,8 @@ class DemoSeeder:
         report = SeedReport(
             organization=actor.organization.name,
             owner_email=self.email,
-            recruiter_email=self.email.replace("@", "+recruiter@", 1),
-            manager_email=self.email.replace("@", "+manager@", 1),
+            recruiter_email=self.recruiter_email,
+            manager_email=self.manager_email,
             password=self.password,
             created=created,
         )
@@ -631,14 +645,14 @@ class DemoSeeder:
         await self.ensure_member(
             actor,
             email=report.recruiter_email,
-            full_name="Демо Рекрутер",
+            full_name=f"{RECRUITER_NAME} · {actor.organization.name}",
             role="recruiter",
             vacancy_scope=None,
         )
         await self.ensure_member(
             actor,
             email=report.manager_email,
-            full_name="Демо Менеджер",
+            full_name=f"{MANAGER_NAME} · {actor.organization.name}",
             role="hiring_manager",
             vacancy_scope=[str(first.id)],
         )
@@ -664,11 +678,21 @@ async def seed(
     password: str,
     email: str = DEFAULT_EMAIL,
     evaluate: str = "dataset",
+    organization: str = ORGANIZATION_NAME,
+    recruiter_email: str | None = None,
+    manager_email: str | None = None,
     dataset_dir: Path = DATASET_DIR,
 ) -> SeedReport:
     async with session_maker() as session:
         seeder = DemoSeeder(
-            session, email=email, password=password, evaluate=evaluate, dataset_dir=dataset_dir
+            session,
+            email=email,
+            password=password,
+            evaluate=evaluate,
+            organization=organization,
+            recruiter_email=recruiter_email,
+            manager_email=manager_email,
+            dataset_dir=dataset_dir,
         )
         return await seeder.run()
 
@@ -676,7 +700,14 @@ async def seed(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="LeonIT: демо-данные для стенда")
     parser.add_argument("--password", required=True, help="пароль владельца, рекрутера и менеджера")
-    parser.add_argument("--email", default=DEFAULT_EMAIL, help="e-mail владельца демо-организации")
+    parser.add_argument("--email", default=DEFAULT_EMAIL, help="e-mail владельца организации")
+    parser.add_argument("--organization", default=ORGANIZATION_NAME, help="название организации")
+    parser.add_argument(
+        "--recruiter-email", default=None, help="e-mail рекрутера (по умолчанию — +recruiter)"
+    )
+    parser.add_argument(
+        "--manager-email", default=None, help="e-mail менеджера (по умолчанию — +manager)"
+    )
     parser.add_argument(
         "--evaluate",
         choices=("dataset", "real", "none"),
@@ -700,6 +731,9 @@ def main(argv: list[str] | None = None) -> int:
                 password=args.password,
                 email=args.email,
                 evaluate=args.evaluate,
+                organization=args.organization,
+                recruiter_email=args.recruiter_email,
+                manager_email=args.manager_email,
                 dataset_dir=args.dataset,
             )
         finally:
