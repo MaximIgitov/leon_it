@@ -641,6 +641,6 @@ async def test_tts_returns_bytes_with_content_type(http: httpx.AsyncClient) -> N
     assert body == {
         "model": "model-tts",
         "input": "Расскажите о себе",
-        "voice": "alloy",
+        "voice": "nova",
         "response_format": "mp3",
     }

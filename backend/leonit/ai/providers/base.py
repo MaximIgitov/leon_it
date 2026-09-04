@@ -214,7 +214,7 @@ class STTProvider(ABC):
 
 class TTSProvider(ABC):
     model: str
-    default_voice: str = "alloy"
+    default_voice: str = "nova"
 
     def resolve_format(self, audio_format: str) -> str:
         """Какой формат реально вернёт провайдер (фейк всегда отдаёт WAV)."""
