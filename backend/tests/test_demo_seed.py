@@ -104,3 +104,37 @@ async def test_seed_real_mode_enqueues_evaluation_jobs() -> None:
 def test_dataset_cases_have_personas() -> None:
     _, cases = load_cases()
     assert {case["_code"] for case in cases} == set(PERSONAS)
+
+
+async def test_seed_accepts_custom_organization_and_member_emails(client: AsyncClient) -> None:
+    """Сид умеет заводить не только демо-организацию: имя и адреса задаются."""
+    suffix = uuid.uuid4().hex[:6]
+    owner = f"owner-{suffix}@example.com"
+    recruiter = f"recruiter-{suffix}@example.com"
+    manager = f"manager-{suffix}@example.com"
+    report = await seed(
+        get_session_maker(),
+        password=PASSWORD,
+        email=owner,
+        organization="Napoleon IT",
+        recruiter_email=recruiter,
+        manager_email=manager,
+    )
+    assert report.organization == "Napoleon IT"
+    assert (report.recruiter_email, report.manager_email) == (recruiter, manager)
+
+    # Все три аккаунта входят с этим паролем и видят свою часть системы.
+    owner_token = await _login(client, owner)
+    recruiter_token = await _login(client, recruiter)
+    manager_token = await _login(client, manager)
+    for token, expected in ((owner_token, 2), (recruiter_token, 2), (manager_token, 1)):
+        listed = await client.get("/api/vacancies", headers={"Authorization": f"Bearer {token}"})
+        assert listed.status_code == 200, listed.text
+        assert len(listed.json()) == expected
+
+    members = await client.get(
+        "/api/organization/members", headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    assert members.status_code == 200, members.text
+    roles = {row["email"]: row["role"] for row in members.json()}
+    assert roles == {owner: "owner", recruiter: "recruiter", manager: "hiring_manager"}
