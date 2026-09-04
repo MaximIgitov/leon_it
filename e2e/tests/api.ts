@@ -84,3 +84,49 @@ export async function seedInterview(options: { prepSeconds?: number; maxAnswerSe
 export async function getInterview(seed: Seed): Promise<{ status: string }> {
   return call(`/interviews/${seed.interviewId}`, { token: seed.token });
 }
+
+/**
+ * Пройти интервью через API: согласия, старт, ответы (без записи видео —
+ * загружаем небольшой WebM-заголовок), завершение. Нужен для сценариев
+ * кабинета, где важен результат, а не путь кандидата в браузере.
+ */
+export async function completeInterview(seed: Seed): Promise<void> {
+  const token = seed.link.split("/i/")[1];
+  const page = await call<{ consent_documents: { slug: string; version: string }[] }>(
+    `/public/invitations/${token}`,
+  );
+  await call(`/public/invitations/${token}/consent`, {
+    method: "POST",
+    body: JSON.stringify({
+      full_name: "Иван Кандидат",
+      email: "candidate@example.com",
+      personal_data_accepted: true,
+      privacy_policy_accepted: true,
+      document_versions: Object.fromEntries(
+        page.consent_documents.map((document) => [document.slug, document.version]),
+      ),
+    }),
+  });
+  const state = await call<{ total_questions: number }>(`/public/invitations/${token}/start`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  for (let index = 0; index < state.total_questions; index += 1) {
+    await call(`/public/invitations/${token}/questions/${index}/reveal`, { method: "POST" });
+    const created = await call<{ answer: { id: string } }>(
+      `/public/invitations/${token}/questions/${index}/answers`,
+      { method: "POST", body: JSON.stringify({ mime_type: "video/webm" }) },
+    );
+    const chunk = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0]);
+    await fetch(`${API_URL}/public/invitations/${token}/answers/${created.answer.id}/chunks`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/offset+octet-stream", "Upload-Offset": "0" },
+      body: chunk,
+    });
+    await call(`/public/invitations/${token}/answers/${created.answer.id}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ size: chunk.byteLength, client_duration_ms: 4000 }),
+    });
+    await call(`/public/invitations/${token}/next`, { method: "POST" });
+  }
+}

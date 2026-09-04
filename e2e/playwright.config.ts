@@ -44,6 +44,17 @@ export default defineConfig({
         ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
       },
     },
+    {
+      // Мобильный прогон: та же комната на узком экране с эмуляцией касаний.
+      // Chromium подменяет камеру фейковым устройством и на мобильном профиле,
+      // поэтому сценарий кандидата проходит целиком.
+      name: "mobile-chrome",
+      testMatch: /candidate-flow\.spec\.ts/,
+      use: {
+        ...devices["Pixel 7"],
+        ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
+      },
+    },
   ],
   metadata: { apiUrl: API_URL },
 });
