@@ -73,13 +73,23 @@ describe("лендинг", () => {
     expect(html).toContain("Ссылка одноразовая?");
   });
 
-  it("показывает заглушку, пока демо-видео не записано", () => {
+  it("показывает заглушку, когда демо-видео ещё не записано", () => {
+    // Наличие файла проверяется на диске, поэтому подменяем его: тест про
+    // поведение лендинга, а не про то, лежит ли запись в репозитории.
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
     expect(demoVideoExists()).toBe(false);
-    const html = renderToStaticMarkup(<HomePage />);
+    const html = renderToStaticMarkup(<VideoDemo />);
 
     expect(html).toContain('data-testid="demo-placeholder"');
     expect(html).toContain("Демо появится после записи");
     expect(html).not.toContain("<video");
+  });
+
+  it("на главной есть блок демо: плеер, когда запись лежит в public/demo", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+
+    expect(html).toContain('id="demo"');
+    expect(html).toContain(demoVideoExists() ? 'data-testid="demo-video"' : 'data-testid="demo-placeholder"');
   });
 
   it("показывает плеер с постером, когда файл есть", () => {
