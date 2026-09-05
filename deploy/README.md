@@ -13,6 +13,24 @@ ssh root@<host> 'bash /tmp/bootstrap-server.sh <домен>'
 Без домена скрипт возьмёт `<ip-через-дефисы>.sslip.io` — этого достаточно
 для HTTPS через Let's Encrypt, а без HTTPS браузеры не дают доступ к камере.
 
+## Свой домен
+
+Стенд живёт на `leon-it.tech` (A-записи `leon-it.tech` и `www.leon-it.tech`
+указывают на сервер). Переезд на домен — четыре правки в `/opt/leonit/.env`
+и `docker compose up -d`, образы пересобирать не нужно:
+
+1. `DOMAIN=<домен>` — по нему Caddy выпускает сертификат, а деплой проверяет
+   health; `DOMAIN_ALIASES=www.<домен> <старый-адрес>` — через пробел, Caddy
+   получит сертификаты и на них: `www` перенаправляется на основной домен, а
+   старый `<ip>.sslip.io` продолжает открывать уже разосланные ссылки.
+2. `PUBLIC_URL=https://<домен>` — адрес в письмах, ссылках кандидатов и
+   документах согласий; `CORS_ORIGINS` — все хосты списком.
+3. `HH_REDIRECT_URL=https://<домен>/api/integrations/hh/callback` — тот же адрес
+   нужно вписать в Redirect URI приложения в кабинете разработчика hh.ru.
+4. Переменная репозитория `PUBLIC_URL` (Settings → Variables) — с ней
+   собирается фронтенд (`NEXT_PUBLIC_APP_URL`: канонические ссылки и
+   метаданные лендинга); подхватится на следующем выкате.
+
 Затем на сервере ставится self-hosted раннер GitHub Actions от пользователя
 `runner` (он в группе `docker`): токен регистрации — в настройках репозитория
 (Settings → Actions → Runners → New self-hosted runner), метка `leonit-vps`.

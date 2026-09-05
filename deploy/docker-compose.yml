@@ -104,6 +104,8 @@ services:
       - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN is required}
+      # Дополнительные хосты через пробел (www, старый sslip-адрес); см. Caddyfile.
+      DOMAIN_ALIASES: ${DOMAIN_ALIASES:-}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

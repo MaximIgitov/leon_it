@@ -48,6 +48,8 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   log "создаём ${ENV_FILE}"
   cat >"${ENV_FILE}" <<EOF
 DOMAIN=${DOMAIN}
+# Дополнительные хосты через пробел (www.<домен>, старый sslip-адрес).
+DOMAIN_ALIASES=
 ACME_EMAIL=admin@${DOMAIN}
 PUBLIC_URL=https://${DOMAIN}
 CORS_ORIGINS=["https://${DOMAIN}"]
