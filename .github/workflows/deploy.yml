@@ -62,7 +62,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
           build-args: |
             NEXT_PUBLIC_BACKEND_API_URL=/api
-            NEXT_PUBLIC_APP_URL=${{ vars.PUBLIC_URL || 'https://89-23-117-80.sslip.io' }}
+            NEXT_PUBLIC_APP_URL=${{ vars.PUBLIC_URL || 'https://leon-it.tech' }}
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
             ${{ env.FRONTEND_IMAGE }}:latest
