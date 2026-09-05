@@ -10,11 +10,35 @@ import { completeInterview, getInterview, seedInterview } from "./api";
  */
 
 async function login(page: import("@playwright/test").Page, email: string, password: string) {
-  await page.goto("/login");
+  // Ждём гидратацию: в WebKit форма оживает позже, и ввод до неё теряется.
+  await page.goto("/login", { waitUntil: "networkidle" });
   await page.getByLabel("E-mail").fill(email);
   await page.getByLabel("Пароль").fill(password);
   await page.getByRole("button", { name: "Войти" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
+  // Дашборд должен дорисоваться и дозапросить данные до следующего goto: если
+  // прервать клиентский переход Next на середине, роутер делает жёсткий
+  // переход на /dashboard и отменяет нашу навигацию (заметно в WebKit).
+  // networkidle здесь не помогает: он относится к документу /login.
+  await expect(page.getByRole("heading", { name: "Дашборд" })).toBeVisible();
+  await expect(page.getByText("Воронка", { exact: true })).toBeVisible();
+  await page.waitForTimeout(750);
+}
+
+/**
+ * Полная навигация после клиентского перехода Next. В dev-режиме роутер может
+ * ответить на прерванный fetch жёстким переходом на текущую страницу
+ * («interrupted by another navigation», воспроизводится в WebKit) — тогда
+ * дожидаемся его и повторяем переход один раз.
+ */
+async function gotoSettled(page: import("@playwright/test").Page, url: string) {
+  try {
+    await page.goto(url);
+  } catch (error) {
+    if (!String(error).includes("interrupted by another navigation")) throw error;
+    await page.waitForLoadState("load");
+    await page.goto(url);
+  }
 }
 
 test("рекрутер работает с заключением, достоверностью и доступом", async ({ page, context }) => {
@@ -27,10 +51,10 @@ test("рекрутер работает с заключением, достов�
   await login(page, seed.email, seed.password);
 
   // Ранжирование по вакансии: кандидат с баллом и рекомендацией.
-  await page.goto(`/vacancies/${seed.vacancyId}`);
+  await gotoSettled(page, `/vacancies/${seed.vacancyId}`);
   await expect(page.getByRole("heading", { name: "Python-разработчик" })).toBeVisible();
 
-  await page.goto(`/vacancies/${seed.vacancyId}/interviews/${seed.interviewId}`);
+  await gotoSettled(page, `/vacancies/${seed.vacancyId}/interviews/${seed.interviewId}`);
   await expect(page.getByRole("heading", { name: "Иван Кандидат" })).toBeVisible();
 
   // Заключение: резюме и баллы по компетенциям.
@@ -64,6 +88,6 @@ test("рекрутер работает с заключением, достов�
   }
 
   // Дашборд: воронка учитывает завершённое интервью.
-  await page.goto("/dashboard");
+  await gotoSettled(page, "/dashboard");
   await expect(page.getByText("Приглашены")).toBeVisible({ timeout: 30_000 });
 });

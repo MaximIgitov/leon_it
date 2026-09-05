@@ -34,10 +34,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return next;
     } catch (error) {
       // 401/403 — сессия отозвана или права изменились: токен больше не нужен.
+      // Сетевая ошибка — в том числе запрос, прерванный уходом со страницы, —
+      // не разлогинивает: иначе RequireAuth уводит на /login посреди навигации
+      // (воспроизводилось в WebKit), а /login тут же возвращает на дашборд.
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         setAccessToken(null);
+        setMe(null);
       }
-      setMe(null);
       return null;
     } finally {
       setLoading(false);

@@ -61,6 +61,9 @@ _RECRUITER_ACTIONS = frozenset(
         "integrations.read",
         # Синхронизация, импорт вакансий и настройка диалогов интеграций (HH).
         "integrations.operate",
+        # База знаний компании: читают все роли, пополняют рекрутёр и владелец.
+        "knowledge.read",
+        "knowledge.write",
     }
 )
 _OWNER_ACTIONS = _RECRUITER_ACTIONS | frozenset(
@@ -85,6 +88,7 @@ _HIRING_MANAGER_ACTIONS = frozenset(
         "report.decide",
         "dashboard.read",
         "assistant.use",
+        "knowledge.read",
     }
 )
 

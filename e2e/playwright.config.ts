@@ -59,6 +59,24 @@ export default defineConfig({
     // (E2E_FIREFOX=1 после `npx playwright install firefox`), чтобы CI без
     // скачанного Firefox не падал. Камера и микрофон — фейковые через prefs,
     // разрешения в Firefox через контекст не выдаются, поэтому их список пуст.
+    // WebKit — движок Safari; ближайшая проверка «как на iPhone» без устройства.
+    // Включается E2E_WEBKIT=1 после `npx playwright install webkit`. Сборка
+    // WebKit для Windows не даёт getUserMedia и MediaRecorder, поэтому комната
+    // кандидата на ней не проверяется — только кабинет; на macOS/Linux можно
+    // снять testMatch: там у WebKit есть mock-камера.
+    ...(process.env.E2E_WEBKIT
+      ? [
+          {
+            name: "webkit",
+            testMatch: /recruiter-flow\.spec\.ts/,
+            use: {
+              ...devices["Desktop Safari"],
+              viewport: { width: 1280, height: 800 },
+              launchOptions: {},
+            },
+          },
+        ]
+      : []),
     ...(process.env.E2E_FIREFOX
       ? [
           {

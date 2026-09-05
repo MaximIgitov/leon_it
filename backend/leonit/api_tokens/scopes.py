@@ -32,6 +32,8 @@ SCOPE_ACTIONS: dict[str, frozenset[str]] = {
     "interviews:read": frozenset({"interview.read"}),
     "reports:read": frozenset({"interview.read", "report.read"}),
     "media:read": frozenset(),
+    "knowledge:read": frozenset({"knowledge.read"}),
+    "knowledge:write": frozenset({"knowledge.read", "knowledge.write"}),
 }
 
 SCOPES: tuple[str, ...] = tuple(SCOPE_ACTIONS)
@@ -44,6 +46,8 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "interviews:read": "Статусы, таймстемпы и решения по интервью.",
     "reports:read": "Заключение модели, транскрипты ответов и ранжирование по вакансии.",
     "media:read": "Подписанные короткоживущие ссылки на видео и аудио ответов в отчёте.",
+    "knowledge:read": "Поиск по базе знаний организации и чтение документов.",
+    "knowledge:write": "Добавление и удаление документов базы знаний.",
 }
 
 

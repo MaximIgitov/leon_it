@@ -134,6 +134,15 @@ cd e2e && E2E_CHANNEL=chrome E2E_FRONTEND_START=1 npm test
 Против стенда: `E2E_EXTERNAL=1 E2E_BASE_URL=https://… E2E_API_URL=https://…/api npm test`.
 В CI job `E2E (кандидат)` запускается на `main` и не блокирует слияние.
 
+Другие движки — по флагам, после `npx playwright install firefox webkit`:
+`E2E_FIREFOX=1 npx playwright test --project=firefox` (оба сценария, камера
+через prefs) и `E2E_WEBKIT=1 npx playwright test --project=webkit` (только
+кабинет: сборка WebKit для Windows не даёт `getUserMedia`, на macOS/Linux
+можно снять `testMatch`). Сборка Firefox от Playwright на Windows иногда
+приходит без манифеста `mozglue` («side-by-side configuration is incorrect»)
+— помогает `npx playwright install --force firefox` или другая версия
+Playwright.
+
 ## Чек-лист браузеров для комнаты интервью
 
 Комната требует безопасный контекст (HTTPS), `getUserMedia` и `MediaRecorder`.
@@ -156,6 +165,7 @@ cd e2e && E2E_CHANNEL=chrome E2E_FRONTEND_START=1 npm test
 
 | Сбой | Причина / решение |
 |---|---|
+| Загрузка в базу знаний отвечает 422 «Формат … не поддерживается» или «не нашлось текста» | сканы и картинки не распознаются: нужен текстовый PDF, docx или текст; лимит файла 20 МБ |
 | `curl https://…/api/health` — таймаут, `docker compose logs caddy` ругается на TLS | ACME не выдал сертификат (лимиты Let's Encrypt, порт 80/443 закрыт) — проверить `ufw`, подождать; Caddy повторяет сам |
 | API не стартует: `ValueError: … must be set in production` | в `.env` нет `JWT_SECRET`/`DATA_ENCRYPTION_KEY`/`CORS_ORIGINS` — `deploy.sh` генерирует ключ шифрования, остальное из bootstrap |
 | API не стартует: `MODEL_PROVIDER=fake is not allowed in production` | добавить `MODEL_DEFAULT_API_KEY` (секрет репозитория или `.env`) либо `MODEL_ALLOW_FAKE_IN_PRODUCTION=true` для демо без моделей |

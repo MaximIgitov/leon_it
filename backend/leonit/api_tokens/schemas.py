@@ -13,6 +13,8 @@ Scope = Literal[
     "interviews:read",
     "reports:read",
     "media:read",
+    "knowledge:read",
+    "knowledge:write",
 ]
 TokenStatus = Literal["active", "expired", "revoked"]
 
