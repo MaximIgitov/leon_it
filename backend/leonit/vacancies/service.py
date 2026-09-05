@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from leonit.avatar import avatar_available
+from leonit.avatar.jobs import schedule_prewarm
 from leonit.core.authz import Actor, authorize, visible_vacancy_ids
 from leonit.core.errors import NotFoundError, ValidationFailedError
 from leonit.core.time import aware, utcnow
@@ -96,10 +98,19 @@ class VacancyService:
             for question in vacancy.questions:
                 question.competency_ids = [c for c in question.competency_ids if c in known]
         if payload.settings is not None:
+            was_on, old_voice = vacancy.avatar_enabled, vacancy.voice
             data = payload.settings.model_dump()
             data["candidate_feedback_mode"] = CandidateFeedbackMode(data["candidate_feedback_mode"])
             for field, value in data.items():
                 setattr(vacancy, field, value)
+            # Клипы аватара привязаны к тексту и голосу: включили или сменили голос —
+            # готовим заново, чтобы кандидат не ждал рендера.
+            if (
+                vacancy.status == VacancyStatus.published
+                and vacancy.avatar_enabled
+                and (not was_on or vacancy.voice != old_voice)
+            ):
+                await schedule_prewarm(self.session, vacancy.id)
         await self.session.commit()
         return await self.get(actor, vacancy.id, action="vacancy.write")
 
@@ -139,6 +150,8 @@ class VacancyService:
         await self.session.flush()
         for position, question in enumerate(kept):
             question.position = position
+        if vacancy.status == VacancyStatus.published and vacancy.avatar_enabled:
+            await schedule_prewarm(self.session, vacancy.id)
         await self.session.commit()
         return await self.get(actor, vacancy.id, action="vacancy.write")
 
@@ -156,6 +169,8 @@ class VacancyService:
         vacancy.status = VacancyStatus.published
         vacancy.published_at = utcnow()
         vacancy.archived_at = None
+        if vacancy.avatar_enabled:
+            await schedule_prewarm(self.session, vacancy.id)
         await self.session.commit()
         return await self.get(actor, vacancy.id, action="vacancy.write")
 
@@ -237,6 +252,7 @@ def vacancy_detail_out(vacancy: Vacancy) -> VacancyDetailOut:
     return VacancyDetailOut(
         **base.model_dump(),
         questions=[question_out(question) for question in vacancy.questions],
+        avatar_available=avatar_available(),
     )
 
 

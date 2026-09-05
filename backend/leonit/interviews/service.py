@@ -15,7 +15,8 @@ from leonit.accounts.models import Organization, User
 from leonit.ai.gateway import get_tts
 from leonit.ai.providers.base import ProviderError
 from leonit.ai.tts_cache import get_or_synthesize
-from leonit.avatar import get_avatar_provider, get_or_render
+from leonit.avatar import get_avatar_provider, get_or_render, lookup
+from leonit.avatar.jobs import schedule_prewarm
 from leonit.candidates.models import Interview, InterviewStatus
 from leonit.candidates.service import InterviewService, transition
 from leonit.code_runner import RunnerDisabled, get_code_runner
@@ -242,17 +243,38 @@ class InterviewRoomService:
         return question
 
     async def _avatar(
-        self, question: dict[str, Any], voice: str | None, language: str
+        self,
+        question: dict[str, Any],
+        snapshot: dict[str, Any],
+        vacancy_id: uuid.UUID,
+        language: str,
     ) -> AvatarOut:
-        """Клип аватара с вопросом; любая ошибка — персона без видео, интервью идёт."""
+        """Клип аватара с вопросом; любая ошибка — персона без видео, интервью идёт.
+
+        Аватар включается флагом сервера и настройкой вакансии (снимок на момент
+        старта интервью): по умолчанию выключен, деньги провайдеру не уходят.
+        Провайдер с долгим рендером отдаёт только готовые клипы из кэша; промах
+        ставит прогрев, чтобы следующий кандидат клип получил.
+        """
         settings = get_settings()
-        if not settings.AVATAR_ENABLED:
+        if not settings.AVATAR_ENABLED or not snapshot.get("avatar_enabled"):
             return AvatarOut(enabled=False)
         provider = get_avatar_provider(settings)
         if not provider.enabled:
             return AvatarOut(enabled=False)
+        voice = snapshot.get("voice")
         try:
-            clip = await get_or_render(self.storage, provider, question["text"], voice, language)
+            if getattr(provider, "background_render", False):
+                clip = await lookup(self.storage, provider, question["text"], voice, language)
+                if clip is None:
+                    # Уточняющие вопросы генерируются на лету — их не прогреть.
+                    if question.get("followup_of") is None:
+                        await schedule_prewarm(self.session, vacancy_id)
+                    return AvatarOut(enabled=True)
+            else:
+                clip = await get_or_render(
+                    self.storage, provider, question["text"], voice, language
+                )
         except Exception as error:  # аватар — украшение, не причина остановить интервью
             log.warning("avatar.unavailable provider=%s error=%s", provider.name, error)
             return AvatarOut(enabled=True)
@@ -289,7 +311,7 @@ class InterviewRoomService:
             except ProviderError as error:
                 # Без озвучки интервью продолжается: текст вопроса на экране всегда.
                 log.warning("tts.unavailable interview=%s error=%s", interview.id, error)
-        avatar = await self._avatar(question, settings.get("voice"), vacancy.language)
+        avatar = await self._avatar(question, settings, vacancy.id, vacancy.language)
         await self.session.commit()
         return Revealed(question, revealed_at, audio_url, audio_type, avatar)
 

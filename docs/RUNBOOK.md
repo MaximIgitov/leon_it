@@ -51,10 +51,32 @@ Compose-сервисы: `postgres`, `api` (uvicorn), `worker` (очередь з
 | Письма | `EMAIL_MODE=console|smtp`, `EMAIL_FROM`, `SMTP_HOST/PORT/USER/PASSWORD/STARTTLS` | в `console` письма видны во вкладке «Письма» и в логах |
 | Медиа | `MEDIA_ROOT=/data/media`, `FFMPEG_BIN`, `FFMPEG_TIMEOUT_S`, `RETENTION_PURGE_HOUR_UTC`, `PIPELINE_STALE_PROCESSING_S` | срок хранения — настройка организации `retention_days` |
 | Наблюдаемость | `LOG_LEVEL`, `METRICS_TOKEN` | `/api/metrics` открыт только с токеном |
-| Интеграции | `HH_*`, `HUNTFLOW_*`, `AVATAR_*`, `CODE_RUNNER*` | без ключей работают в fake/выключенном режиме |
+| Интеграции | `HH_*`, `HUNTFLOW_*`, `CODE_RUNNER*` | без ключей работают в fake/выключенном режиме |
+| ИИ-аватар | `AVATAR_ENABLED=true`, `AVATAR_PROVIDER=heygen`, `AVATAR_HEYGEN_API_KEY`; необязательные `AVATAR_HEYGEN_AVATAR_ID`, `AVATAR_HEYGEN_VOICE_ID`, `AVATAR_HEYGEN_ENGINE`, `AVATAR_MAX_TEXT_CHARS` | кошелёк pay-as-you-go HeyGen; без ключа комната показывает персону LeonIT; включается отдельно у каждой вакансии |
 
 Ротация ключа шифрования: новый ключ в `DATA_ENCRYPTION_KEY`, старый — в
 `DATA_ENCRYPTION_KEYS_SECONDARY` (через запятую); расшифровка пробует все ключи.
+
+## ИИ-аватар (HeyGen)
+
+Аватар платный (движок `avatar_iii` — около $1 за минуту готового видео),
+поэтому включается в два шага: ключ и флаги на сервере (таблица выше) и
+переключатель «ИИ-аватар интервьюера» в настройках конкретной вакансии.
+Клипы вопросов рендерятся задачей `avatar.prewarm` при публикации, при
+смене вопросов или голоса, кэшируются по тексту и голосу и лежат в
+`MEDIA_ROOT/avatar/heygen/`. Кандидат никогда не ждёт рендера: если клипа
+нет, комната показывает персону LeonIT с озвучкой и ставит прогрев.
+Результат задачи (таблица `jobs`, столбец `result`, и лог воркера
+`avatar.prewarm`) содержит `rendered/cached/failed` и `balance_usd` — остаток
+кошелька после прогрева. Проверить баланс вручную:
+
+```bash
+curl -s -H "x-api-key: $AVATAR_HEYGEN_API_KEY" https://api.heygen.com/v3/users/me
+```
+
+Публичные образы и голоса: `GET /v3/avatars/looks?ownership=public&avatar_type=studio_avatar`
+и `GET /v3/voices?language=Russian` с тем же заголовком. Повтор запроса на тот же
+текст идёт с `Idempotency-Key`, поэтому сбой сети не списывает деньги дважды.
 
 ## Диагностика
 

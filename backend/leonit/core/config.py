@@ -16,9 +16,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
 ModelProvider = Literal["openai_compatible", "fake"]
-# Задел: реальные провайдеры (HeyGen, D-ID, Piston, Judge0) добавляются в
-# реестры leonit.avatar / leonit.code_runner и в эти Literal.
-AvatarProvider = Literal["none"]
+# Провайдеры добавляются в реестры leonit.avatar / leonit.code_runner и в эти
+# Literal; "heygen" — leonit.avatar.providers.heygen.
+AvatarProvider = Literal["none", "heygen"]
 CodeRunnerKind = Literal["none"]
 
 # Роли моделей: у каждой свой набор MODEL_<ROLE>_* переменных (см. leonit.ai.config).
@@ -176,6 +176,20 @@ class Settings(BaseSettings):
     # Аватар показывается в комнате, только если флаг включён и провайдер не "none".
     AVATAR_ENABLED: bool = False
     AVATAR_PROVIDER: AvatarProvider = "none"
+    # HeyGen (developers.heygen.com), кошелёк pay-as-you-go. Образ — id из
+    # GET /v3/avatars/looks (публичные студийные образы поддерживают avatar_iii),
+    # голос — voice_id из GET /v3/voices?language=Russian.
+    AVATAR_HEYGEN_API_KEY: str | None = None
+    AVATAR_HEYGEN_BASE_URL: str = "https://api.heygen.com"
+    AVATAR_HEYGEN_AVATAR_ID: str = "Daphne_public_1"
+    AVATAR_HEYGEN_VOICE_ID: str = "37832e32d4f7475ab7a1cb0db8e5dd66"  # Anya, русский
+    # avatar_iii — самый дешёвый движок (около $1 за минуту видео), avatar_iv в разы дороже.
+    AVATAR_HEYGEN_ENGINE: Literal["avatar_iii", "avatar_iv", "avatar_v"] = "avatar_iii"
+    AVATAR_HEYGEN_RESOLUTION: Literal["720p", "1080p"] = "720p"
+    AVATAR_HEYGEN_TIMEOUT_S: float = Field(default=420.0, gt=0, le=1800)
+    AVATAR_HEYGEN_POLL_S: float = Field(default=5.0, gt=0, le=60)
+    # Экономия: вопрос длиннее лимита не рендерится — минута видео стоит денег.
+    AVATAR_MAX_TEXT_CHARS: int = Field(default=600, ge=50, le=5000)
     # Запуск кода кандидата: "none" — редактор работает, кнопка «Запустить» выключена.
     CODE_RUNNER: CodeRunnerKind = "none"
     CODE_RUNNER_TIMEOUT_S: float = Field(default=10.0, gt=0, le=120)

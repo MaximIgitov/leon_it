@@ -23,6 +23,7 @@ export type InterviewSettings = {
   followups_max: number;
   tts_enabled: boolean;
   voice: string;
+  avatar_enabled: boolean;
   invitation_days: number;
   candidate_feedback_mode: FeedbackMode;
   candidate_feedback_after_days: number;
@@ -68,6 +69,8 @@ export type Vacancy = {
   settings: InterviewSettings;
   question_count: number;
   questions: Question[];
+  /** Настроен ли на сервере провайдер ИИ-аватара; без него переключатель неактивен. */
+  avatar_available?: boolean;
   created_at: string;
   updated_at: string;
   published_at: string | null;
