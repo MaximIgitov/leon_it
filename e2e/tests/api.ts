@@ -31,7 +31,14 @@ export type Seed = {
   link: string;
 };
 
-export async function seedInterview(options: { prepSeconds?: number; maxAnswerSeconds?: number } = {}): Promise<Seed> {
+export async function seedInterview(
+  options: {
+    prepSeconds?: number;
+    maxAnswerSeconds?: number;
+    interviewMode?: "live" | "push_to_talk";
+    practice?: boolean;
+  } = {},
+): Promise<Seed> {
   const email = `recruiter-${randomUUID().slice(0, 8)}@example.com`;
   const password = "e2e-password-123";
   const { access_token: token } = await call<{ access_token: string }>("/auth/register", {
@@ -57,8 +64,9 @@ export async function seedInterview(options: { prepSeconds?: number; maxAnswerSe
         prep_seconds: options.prepSeconds ?? 2,
         max_answer_seconds: options.maxAnswerSeconds ?? 60,
         retakes_allowed: 1,
-        practice_question_enabled: true,
+        practice_question_enabled: options.practice ?? true,
         tts_enabled: true,
+        interview_mode: options.interviewMode ?? "push_to_talk",
       },
     }),
   });

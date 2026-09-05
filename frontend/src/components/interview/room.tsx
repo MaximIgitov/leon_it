@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, Loader2, Mic, RotateCcw, Square, Video } from "lucide-react";
 
-import { AvatarStage } from "@/components/interview/avatar-stage";
+import { AvatarStage, type StageStatus } from "@/components/interview/avatar-stage";
 import { CodeEditor, clearDraft, draftStorageKey, type CodeDraft } from "@/components/interview/code-editor";
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,42 @@ import {
   type SnapshotQuestion,
 } from "@/lib/api/room";
 import { AnswerRecorder, type UploadProgress } from "@/lib/media/recorder";
+import { useVoiceActivity, type SilenceEvent } from "@/lib/media/voice-activity";
 import type { DeviceCheckResult } from "@/components/interview/device-check";
 
-type Phase = "loading" | "intro" | "prep" | "coding" | "recording" | "uploading" | "review" | "done" | "error";
+/*
+ * Два формата интервью (настройка вакансии `interview_mode`).
+ *
+ * «Живой диалог» (по умолчанию): интервьюер задаёт вопрос голосом или клипом
+ * аватара, после чего комната сразу слушает; пауза после ответа завершает
+ * запись, ответ сохраняется, звучит следующий вопрос. Кнопки — только
+ * страховка: «Ответить сейчас», если не хочется дослушивать, и «Завершить ответ».
+ *
+ * «Кнопка ответа» (push-to-talk): классический сценарий с подготовкой,
+ * «Начать ответ», «Завершить ответ», перезаписью и «Следующий вопрос».
+ *
+ * Задачи на код в обоих форматах идут через редактор без таймера.
+ */
+
+type Phase =
+  | "loading"
+  | "intro"
+  | "speaking"
+  | "prep"
+  | "coding"
+  | "recording"
+  | "uploading"
+  | "review"
+  | "done"
+  | "error";
+type InterviewMode = "live" | "push_to_talk";
 
 // Автосохранение черновика кода на сервер: не чаще, чем раз в пару секунд после паузы.
 const DRAFT_SAVE_DELAY_MS = 2500;
+// Живой диалог: пауза перед прослушиванием, если вопрос никто не озвучивает.
+const READ_QUESTION_MS = 2500;
+// Живой диалог: страховка, если событие «клип дозвучал» так и не пришло.
+const SPEAK_BUDGET_MS = 90_000;
 
 function formatSeconds(total: number): string {
   const minutes = Math.floor(total / 60);
@@ -59,6 +89,10 @@ function isAnswered(state: InterviewState, question: SnapshotQuestion): boolean 
   return hasUploaded(state, question.index);
 }
 
+export function interviewModeOf(state: InterviewState | null): InterviewMode {
+  return state?.settings.interview_mode === "push_to_talk" ? "push_to_talk" : "live";
+}
+
 export function InterviewRoom({
   token,
   devices,
@@ -81,15 +115,30 @@ export function InterviewRoom({
   const [codeBusy, setCodeBusy] = useState<"submit" | "run" | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [waitingFollowups, setWaitingFollowups] = useState(false);
+  // Живой диалог: следующий вопрос задаётся сам, без экрана «Готовы к вопросу?».
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [liveNote, setLiveNote] = useState<string | null>(null);
   const recorderRef = useRef<AnswerRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const draftTimerRef = useRef<number | null>(null);
+  const speakTimerRef = useRef<number | null>(null);
+  const spokenRef = useRef(false);
+  const stoppingRef = useRef(false);
+  // Вопрос, для которого запись уже стартует или идёт: второй старт (двойной
+  // вызов из таймера в dev-режиме React, два события подряд) создал бы вторую
+  // попытку на сервере и сломал бы загрузку.
+  const startingRef = useRef<string | null>(null);
+  const elapsedRef = useRef(0);
+  const countdownRef = useRef(0);
+  const spokenHandlerRef = useRef<() => void>(() => undefined);
   const wakeLock = useRef<{ release: () => Promise<void> } | null>(null);
 
   const index = state?.current_question_index ?? 0;
   const total = state?.total_questions ?? 0;
+  const mode = interviewModeOf(state);
+  const live = mode === "live";
   const getContext = useCallback(
     () => ({ questionIndex: index, answerId: recorderRef.current?.id ?? undefined }),
     [index],
@@ -102,7 +151,7 @@ export function InterviewRoom({
     telemetry.push("faces", { count }),
   );
 
-  // Превью камеры на протяжении всей комнаты.
+  // Превью камеры на протяжении всей комнаты (элемент переезжает между раскладками).
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
@@ -175,13 +224,83 @@ export function InterviewRoom({
     }
   };
 
-  useEffect(() => () => clearDraftTimer(), []);
+  const clearSpeakTimer = () => {
+    if (speakTimerRef.current) {
+      window.clearTimeout(speakTimerRef.current);
+      speakTimerRef.current = null;
+    }
+  };
+
+  useEffect(
+    () => () => {
+      clearDraftTimer();
+      clearSpeakTimer();
+    },
+    [],
+  );
 
   const replayQuestion = () => {
     if (audioRef.current && audioUrl) void audioRef.current.play().catch(() => undefined);
   };
 
-  /** Показать вопрос: озвучка и отсчёт подготовки стартуют в одном клике (iOS). */
+  const startRecording = async (current: SnapshotQuestion) => {
+    if (startingRef.current === current.id) return;
+    startingRef.current = current.id;
+    clearTimer();
+    clearSpeakTimer();
+    audioRef.current?.pause();
+    setProgress(null);
+    setLiveNote(null);
+    stoppingRef.current = false;
+    const recorder = new AnswerRecorder({
+      token,
+      questionIndex: current.index,
+      stream: devices.stream,
+      onProgress: setProgress,
+      onError: (err) => telemetry.push("recorder_error", { message: err.message }),
+    });
+    recorderRef.current = recorder;
+    try {
+      await recorder.start();
+      telemetry.push("recorder_started", { mime_type: recorder.mimeType });
+      setPhase("recording");
+      elapsedRef.current = 0;
+      setElapsed(0);
+      timerRef.current = window.setInterval(() => {
+        elapsedRef.current += 1;
+        setElapsed(elapsedRef.current);
+        if (elapsedRef.current >= current.max_answer_seconds) {
+          clearTimer();
+          void stopRecording();
+        }
+      }, 1000);
+    } catch (caught) {
+      startingRef.current = null;
+      fail(caught, "Не удалось начать запись");
+    }
+  };
+
+  /** Вопрос прозвучал (клип аватара, озвучка или пауза на чтение): живой диалог начинает слушать. */
+  const onQuestionSpoken = (current: SnapshotQuestion) => {
+    if (spokenRef.current) return;
+    spokenRef.current = true;
+    clearSpeakTimer();
+    if (live) void startRecording(current);
+  };
+  spokenHandlerRef.current = () => {
+    if (question && phase === "speaking") onQuestionSpoken(question);
+  };
+
+  // Озвучка TTS дозвучала — тот же сигнал, что и конец клипа аватара.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handler = () => spokenHandlerRef.current();
+    audio.addEventListener("ended", handler);
+    return () => audio.removeEventListener("ended", handler);
+  }, [phase]);
+
+  /** Показать вопрос: озвучка и отсчёт стартуют в одном клике (iOS). */
   const showQuestion = async () => {
     if (!state) return;
     try {
@@ -202,19 +321,29 @@ export function InterviewRoom({
         setPhase("coding");
         return;
       }
+      if (live) {
+        spokenRef.current = false;
+        setPhase("speaking");
+        clearSpeakTimer();
+        const speaks = avatarSpeaks || Boolean(url);
+        const budget = speaks
+          ? Math.min(SPEAK_BUDGET_MS, Math.max(15_000, ((revealed.avatar?.duration_s ?? 45) + 8) * 1000))
+          : READ_QUESTION_MS;
+        speakTimerRef.current = window.setTimeout(() => onQuestionSpoken(revealed.question), budget);
+        return;
+      }
       setPhase("prep");
+      countdownRef.current = revealed.question.prep_seconds;
       setCountdown(revealed.question.prep_seconds);
       if (revealed.question.prep_seconds > 0) {
         clearTimer();
         timerRef.current = window.setInterval(() => {
-          setCountdown((value) => {
-            if (value <= 1) {
-              clearTimer();
-              void startRecording(revealed.question);
-              return 0;
-            }
-            return value - 1;
-          });
+          countdownRef.current = Math.max(0, countdownRef.current - 1);
+          setCountdown(countdownRef.current);
+          if (countdownRef.current <= 0) {
+            clearTimer();
+            void startRecording(revealed.question);
+          }
         }, 1000);
       } else {
         void startRecording(revealed.question);
@@ -224,53 +353,14 @@ export function InterviewRoom({
     }
   };
 
-  const startRecording = async (current: SnapshotQuestion) => {
-    clearTimer();
-    audioRef.current?.pause();
-    setProgress(null);
-    const recorder = new AnswerRecorder({
-      token,
-      questionIndex: current.index,
-      stream: devices.stream,
-      onProgress: setProgress,
-      onError: (err) => telemetry.push("recorder_error", { message: err.message }),
-    });
-    recorderRef.current = recorder;
-    try {
-      await recorder.start();
-      telemetry.push("recorder_started", { mime_type: recorder.mimeType });
-      setPhase("recording");
-      setElapsed(0);
-      timerRef.current = window.setInterval(() => {
-        setElapsed((value) => {
-          const next = value + 1;
-          if (next >= current.max_answer_seconds) {
-            clearTimer();
-            void stopRecording();
-          }
-          return next;
-        });
-      }, 1000);
-    } catch (caught) {
-      fail(caught, "Не удалось начать запись");
+  // Живой диалог: после сохранения ответа следующий вопрос задаётся сам.
+  useEffect(() => {
+    if (live && autoAdvance && phase === "intro" && state) {
+      setAutoAdvance(false);
+      void showQuestion();
     }
-  };
-
-  const stopRecording = async () => {
-    clearTimer();
-    const recorder = recorderRef.current;
-    if (!recorder) return;
-    setPhase("uploading");
-    telemetry.push("recorder_stopped");
-    try {
-      await recorder.finish();
-      const next = await roomApi.state(token);
-      setState(next);
-      setPhase("review");
-    } catch (caught) {
-      fail(caught, "Не удалось загрузить запись. Проверьте соединение и попробуйте снова.");
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAdvance, phase, state, live]);
 
   /** Ожидание блока уточнений: показываем подпись и опрашиваем статус. */
   const waitForFollowups = async () => {
@@ -298,11 +388,6 @@ export function InterviewRoom({
     }
   };
 
-  const retake = () => {
-    if (!question) return;
-    void startRecording(question);
-  };
-
   const goNext = async () => {
     clearDraftTimer();
     try {
@@ -322,10 +407,60 @@ export function InterviewRoom({
       } else {
         setPhase("intro");
         setResumed(false);
+        if (live) setAutoAdvance(true);
       }
     } catch (caught) {
       fail(caught, "Не удалось перейти к следующему вопросу");
     }
+  };
+
+  const stopRecording = async () => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+    clearTimer();
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    setPhase("uploading");
+    telemetry.push("recorder_stopped");
+    try {
+      await recorder.finish();
+      startingRef.current = null;
+      const next = await roomApi.state(token);
+      setState(next);
+      if (live && question?.kind !== "code") {
+        await goNext();
+      } else {
+        setPhase("review");
+      }
+    } catch (caught) {
+      startingRef.current = null;
+      fail(caught, "Не удалось загрузить запись. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  // Живой диалог: микрофон слушает детектор пауз.
+  const onVoiceEvent = (event: SilenceEvent) => {
+    if (event === "end_of_speech") {
+      telemetry.push("live_end_of_speech", { elapsed_s: elapsedRef.current });
+      void stopRecording();
+    } else if (event === "no_speech") {
+      telemetry.push("live_no_speech");
+      setLiveNote("Не слышу вас. Говорите, когда будете готовы, или завершите ответ кнопкой.");
+    } else if (event === "speech_started") {
+      setLiveNote(null);
+    }
+  };
+  const voice = useVoiceActivity(devices.stream, live && phase === "recording" && question?.kind !== "code", onVoiceEvent);
+
+  /** Новая попытка на тот же вопрос: снимаем защиту от повторного старта явно. */
+  const recordAgain = (current: SnapshotQuestion) => {
+    startingRef.current = null;
+    void startRecording(current);
+  };
+
+  const retake = () => {
+    if (!question) return;
+    recordAgain(question);
   };
 
   // ------------------------------------------------------------ секция кода
@@ -433,9 +568,48 @@ export function InterviewRoom({
     );
   }
 
-  const stage = question ? (
-    <AvatarStage question={question} avatar={avatar} audioRef={audioRef} hasAudio={Boolean(audioUrl)} onReplay={replayQuestion} />
-  ) : null;
+  const stageStatus: StageStatus =
+    phase === "speaking"
+      ? "speaking"
+      : phase === "recording"
+        ? "listening"
+        : phase === "uploading"
+          ? "saving"
+          : waitingFollowups || autoAdvance
+            ? "thinking"
+            : "idle";
+  const stagePlaceholder = autoAdvance
+    ? "Следующий вопрос…"
+    : waitingFollowups
+      ? "Интервьюер думает над уточнением…"
+      : resumed
+        ? `Продолжим с вопроса ${index + 1}`
+        : live
+          ? "Интервьюер готов начать"
+          : "Интервьюер ждёт, когда вы будете готовы";
+  const cameraPip = (
+    <div className="absolute bottom-3 right-3 w-28 overflow-hidden rounded-lg shadow-lg ring-2 ring-white/80 sm:w-40">
+      <video ref={videoRef} muted playsInline autoPlay className="aspect-[4/3] w-full bg-black object-cover" />
+    </div>
+  );
+  const recordingBadge =
+    phase === "recording" ? (
+      <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> Запись {formatSeconds(elapsed)}
+      </span>
+    ) : null;
+  const introTitle = live
+    ? index === 0 && !resumed
+      ? "Начнём интервью?"
+      : `Готовы к вопросу ${index + 1}?`
+    : `Готовы к вопросу ${index + 1}?`;
+  const introText =
+    currentQuestion?.kind === "code"
+      ? "Это задача на код: после нажатия вопрос появится на экране и будет озвучен, ниже откроется редактор. Таймера нет — отправьте решение, когда будете готовы."
+      : live
+        ? "Интервьюер задаст вопросы голосом, один за другим. Отвечайте как в разговоре: закончили мысль и сделали паузу — ответ сохранится, и прозвучит следующий вопрос. Кнопка «Завершить ответ» всегда под рукой."
+        : "После нажатия вопрос появится на экране и будет озвучен. У вас будет время подготовиться, затем начнётся запись.";
+  const introButton = live ? (index === 0 && !resumed ? "Начать интервью" : "Продолжить") : "Показать вопрос";
 
   return (
     <div className="space-y-4">
@@ -447,42 +621,14 @@ export function InterviewRoom({
       </div>
       <Progress value={total ? ((index + (phase === "review" ? 1 : 0)) / total) * 100 : 0} className="h-1.5" />
 
-      <div className={phase === "coding" ? "grid gap-4 md:grid-cols-[1fr_3fr]" : "grid gap-4 md:grid-cols-[2fr_3fr]"}>
-        <div className="relative self-start overflow-hidden rounded-xl bg-black">
-          <video ref={videoRef} muted playsInline autoPlay className="aspect-[4/3] w-full object-cover" />
-          {phase === "recording" ? (
-            <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> Запись {formatSeconds(elapsed)}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="flex min-w-0 flex-col justify-between rounded-xl border p-5">
-          {phase === "intro" ? (
-            <>
-              <div>
-                {resumed ? (
-                  <p className="mb-3 rounded-md bg-muted p-3 text-sm">
-                    С возвращением! Продолжим с вопроса {index + 1}.
-                  </p>
-                ) : null}
-                <p className="text-lg font-semibold">Готовы к вопросу {index + 1}?</p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {currentQuestion?.kind === "code"
-                    ? "Это задача на код: после нажатия вопрос появится на экране и будет озвучен, ниже откроется редактор. Таймера нет — отправьте решение, когда будете готовы."
-                    : "После нажатия вопрос появится на экране и будет озвучен. У вас будет время подготовиться, затем начнётся запись."}
-                </p>
-              </div>
-              <Button size="lg" className="mt-6 w-full" onClick={showQuestion}>
-                Показать вопрос
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </>
-          ) : null}
-
-          {phase === "coding" && question && state ? (
+      {phase === "coding" && question && state ? (
+        <div className="grid gap-4 md:grid-cols-[1fr_3fr]">
+          <div className="relative self-start overflow-hidden rounded-xl bg-black">
+            <video ref={videoRef} muted playsInline autoPlay className="aspect-[4/3] w-full object-cover" />
+          </div>
+          <div className="flex min-w-0 flex-col rounded-xl border p-5">
             <div className="space-y-4">
-              {stage}
+              <AvatarStage variant="compact" question={question} avatar={avatar} audioRef={audioRef} hasAudio={Boolean(audioUrl)} onReplay={replayQuestion} />
               <CodeEditor
                 key={question.id}
                 storageKey={draftStorageKey(token, question.id)}
@@ -506,7 +652,7 @@ export function InterviewRoom({
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                     {retakesLeft > 0 ? (
-                      <Button size="lg" variant="outline" onClick={() => startRecording(question)}>
+                      <Button size="lg" variant="outline" onClick={() => recordAgain(question)}>
                         <Video className="mr-2 h-4 w-4" /> Записать пояснение
                       </Button>
                     ) : null}
@@ -519,77 +665,121 @@ export function InterviewRoom({
                 <p className="text-sm text-muted-foreground">Отправьте код, чтобы перейти к следующему вопросу.</p>
               )}
             </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <AvatarStage
+            question={question}
+            avatar={avatar}
+            audioRef={audioRef}
+            hasAudio={Boolean(audioUrl)}
+            onReplay={replayQuestion}
+            onSpoken={() => spokenHandlerRef.current()}
+            status={stageStatus}
+            level={voice.level}
+            countdown={live && phase === "recording" ? voice.countdown : null}
+            badge={recordingBadge}
+            placeholder={stagePlaceholder}
+          >
+            {cameraPip}
+          </AvatarStage>
+
+          {phase === "intro" && !autoAdvance ? (
+            <div className="rounded-xl border p-5">
+              {resumed ? (
+                <p className="mb-3 rounded-md bg-muted p-3 text-sm">
+                  С возвращением! Продолжим с вопроса {index + 1}.
+                </p>
+              ) : null}
+              <p className="text-lg font-semibold">{introTitle}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{introText}</p>
+              <Button size="lg" className="mt-6 w-full" onClick={showQuestion}>
+                {introButton}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+              {state && currentQuestion && isAnswered(state, currentQuestion) ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {currentQuestion.kind === "code"
+                    ? "Код на этот вопрос уже отправлен — можно перейти дальше после показа вопроса."
+                    : "На этот вопрос уже есть записанный ответ — можно перейти дальше после показа вопроса."}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
-          {(phase === "prep" || phase === "recording" || phase === "uploading" || phase === "review") && question ? (
-            <div className="space-y-4">
-              {stage}
+          {phase === "speaking" && question ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+              <p className="text-sm text-muted-foreground">Интервьюер задаёт вопрос. Как дослушаете, начнём слушать вас.</p>
+              <Button variant="outline" onClick={() => onQuestionSpoken(question)}>
+                <Mic className="mr-2 h-4 w-4" /> Ответить сейчас
+              </Button>
+            </div>
+          ) : null}
 
-              {phase === "prep" ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Подготовка: запись начнётся через <span className="font-semibold text-foreground">{countdown} с</span>. Можно начать раньше.
-                  </p>
-                  <Button size="lg" className="w-full" onClick={() => startRecording(question)}>
-                    <Mic className="mr-2 h-4 w-4" /> Начать ответ
+          {phase === "prep" && question ? (
+            <div className="space-y-3 rounded-xl border p-4">
+              <p className="text-sm text-muted-foreground">
+                Подготовка: запись начнётся через <span className="font-semibold text-foreground">{countdown} с</span>. Можно начать раньше.
+              </p>
+              <Button size="lg" className="w-full" onClick={() => startRecording(question)}>
+                <Mic className="mr-2 h-4 w-4" /> Начать ответ
+              </Button>
+            </div>
+          ) : null}
+
+          {phase === "recording" && question ? (
+            <div className="space-y-3 rounded-xl border p-4">
+              {remaining <= 10 ? (
+                <p className="text-sm text-warning">Осталось {remaining} с — завершайте мысль.</p>
+              ) : live ? (
+                <p className={liveNote ? "text-sm text-warning" : "text-sm text-muted-foreground"}>
+                  {liveNote ??
+                    (voice.countdown !== null
+                      ? "Пауза. Если вы закончили, ответ сохранится сам."
+                      : "Слушаю. Говорите свободно: пауза в несколько секунд завершит ответ.")}{" "}
+                  Ответ не дольше {formatSeconds(question.max_answer_seconds)}.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {isCode ? "Расскажите, как устроено ваше решение." : "Говорите свободно."} Ответ не дольше {formatSeconds(question.max_answer_seconds)}.
+                </p>
+              )}
+              <Button size="lg" variant="destructive" className="w-full" onClick={stopRecording}>
+                <Square className="mr-2 h-4 w-4" /> Завершить ответ
+              </Button>
+            </div>
+          ) : null}
+
+          {phase === "uploading" ? (
+            <div className="space-y-2 rounded-xl border p-4">
+              <p className="flex items-center gap-2 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" /> {waitingFollowups ? "Готовим уточняющие вопросы…" : "Сохраняем ответ…"}
+              </p>
+              <Progress value={uploadPercent} className="h-1.5" />
+            </div>
+          ) : null}
+
+          {phase === "review" && question ? (
+            <div className="space-y-3 rounded-xl border p-4">
+              <p className="text-sm text-success">{isCode ? "Пояснение записано." : "Ответ сохранён."}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="lg" className="flex-1" onClick={goNext}>
+                  {nextLabel}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+                {retakesLeft > 0 ? (
+                  <Button size="lg" variant="outline" onClick={retake}>
+                    <RotateCcw className="mr-2 h-4 w-4" /> {isCode ? "Перезаписать пояснение" : "Перезаписать"} (осталось {retakesLeft})
                   </Button>
-                </div>
-              ) : null}
-
-              {phase === "recording" ? (
-                <div className="space-y-3">
-                  {remaining <= 10 ? (
-                    <p className="text-sm text-warning">Осталось {remaining} с — завершайте мысль.</p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {isCode ? "Расскажите, как устроено ваше решение." : "Говорите свободно."} Ответ не дольше {formatSeconds(question.max_answer_seconds)}.
-                    </p>
-                  )}
-                  <Button size="lg" variant="destructive" className="w-full" onClick={stopRecording}>
-                    <Square className="mr-2 h-4 w-4" /> Завершить ответ
-                  </Button>
-                </div>
-              ) : null}
-
-              {phase === "uploading" ? (
-                <div className="space-y-2">
-                  <p className="flex items-center gap-2 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Сохраняем запись…
-                  </p>
-                  <Progress value={uploadPercent} className="h-1.5" />
-                </div>
-              ) : null}
-
-              {phase === "review" ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-success">{isCode ? "Пояснение записано." : "Ответ сохранён."}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="lg" className="flex-1" onClick={goNext}>
-                      {nextLabel}
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                    {retakesLeft > 0 ? (
-                      <Button size="lg" variant="outline" onClick={retake}>
-                        <RotateCcw className="mr-2 h-4 w-4" /> {isCode ? "Перезаписать пояснение" : "Перезаписать"} (осталось {retakesLeft})
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
+                ) : null}
+              </div>
               {isCode && codeSubmission ? <CodeSubmission submission={codeSubmission} className="border-t pt-4" /> : null}
             </div>
           ) : null}
         </div>
-      </div>
+      )}
       <audio ref={audioRef} preload="auto" className="hidden" />
-      {state && currentQuestion && phase === "intro" && isAnswered(state, currentQuestion) ? (
-        <p className="text-xs text-muted-foreground">
-          {currentQuestion.kind === "code"
-            ? "Код на этот вопрос уже отправлен — можно перейти дальше после показа вопроса."
-            : "На этот вопрос уже есть записанный ответ — можно перейти дальше после показа вопроса."}
-        </p>
-      ) : null}
     </div>
   );
 }

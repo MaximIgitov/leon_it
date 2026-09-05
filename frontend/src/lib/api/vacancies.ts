@@ -13,6 +13,18 @@ export type RubricCompetency = {
   levels: Record<string, string>;
 };
 
+export type InterviewMode = "live" | "push_to_talk";
+
+export const INTERVIEW_MODE_LABELS: Record<InterviewMode, string> = {
+  live: "Живой диалог",
+  push_to_talk: "Кнопка ответа",
+};
+
+export const INTERVIEW_MODE_HINTS: Record<InterviewMode, string> = {
+  live: "Интервьюер задаёт вопрос голосом, кандидат отвечает как в разговоре: пауза завершает ответ, следующий вопрос звучит сам. Перезапись в этом формате недоступна.",
+  push_to_talk: "Кандидат сам нажимает «Начать ответ» и «Завершить ответ»; есть время на подготовку и перезапись.",
+};
+
 export type InterviewSettings = {
   intro_text: string;
   prep_seconds: number;
@@ -24,6 +36,7 @@ export type InterviewSettings = {
   tts_enabled: boolean;
   voice: string;
   avatar_enabled: boolean;
+  interview_mode: InterviewMode;
   invitation_days: number;
   candidate_feedback_mode: FeedbackMode;
   candidate_feedback_after_days: number;

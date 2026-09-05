@@ -26,6 +26,7 @@ function vacancy(overrides: Partial<Vacancy>): Vacancy {
       tts_enabled: true,
       voice: "nova",
       avatar_enabled: false,
+      interview_mode: "live",
       invitation_days: 7,
       candidate_feedback_mode: "after_decision",
       candidate_feedback_after_days: 3,
@@ -54,6 +55,8 @@ describe("настройки интервью: ИИ-аватар", () => {
       <SettingsEditor vacancy={vacancy({ avatar_available: true })} editable onSaved={noop} onError={noop} />,
     );
     expect(available).toContain("ИИ-аватар интервьюера");
+    expect(available).toContain("Формат интервью");
+    expect(available).toContain("В живом диалоге перезаписи нет");
     expect(available).toContain("Клипы готовятся один раз при публикации");
     const unavailable = renderToStaticMarkup(
       <SettingsEditor vacancy={vacancy({ avatar_available: false })} editable onSaved={noop} onError={noop} />,

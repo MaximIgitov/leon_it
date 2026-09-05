@@ -230,6 +230,7 @@ def _public_out(
         max_answer_seconds=vacancy.max_answer_seconds,
         retakes_allowed=vacancy.retakes_allowed,
         practice_question_enabled=vacancy.practice_question_enabled,
+        interview_mode=vacancy.interview_mode,
         expires_at=aware(interview.expires_at),  # type: ignore[arg-type]
         needs_consent=interview.status in (InterviewStatus.invited, InterviewStatus.opened),
         candidate_full_name=interview.consent_full_name or interview.candidate.full_name,

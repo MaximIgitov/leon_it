@@ -78,6 +78,7 @@ export type InvitationPublic = {
   max_answer_seconds: number;
   retakes_allowed: number;
   practice_question_enabled: boolean;
+  interview_mode?: "live" | "push_to_talk";
   expires_at: string;
   needs_consent: boolean;
   candidate_full_name: string;

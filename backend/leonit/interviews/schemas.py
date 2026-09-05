@@ -31,6 +31,9 @@ EVENT_KINDS: frozenset[str] = frozenset(
         "mobile_resume",
         "network_error",
         "practice_completed",
+        # Живой диалог: детектор пауз завершил ответ / кандидат так и не заговорил.
+        "live_end_of_speech",
+        "live_no_speech",
     }
 )
 

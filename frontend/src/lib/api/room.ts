@@ -68,6 +68,7 @@ export type InterviewState = {
     retakes_allowed?: number;
     practice_question_enabled?: boolean;
     tts_enabled?: boolean;
+    interview_mode?: "live" | "push_to_talk";
   };
   revealed_at: Record<string, string>;
   expires_at: string;
