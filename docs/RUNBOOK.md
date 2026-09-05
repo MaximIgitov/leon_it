@@ -66,8 +66,9 @@ Compose-сервисы: `postgres`, `api` (uvicorn), `worker` (очередь з
 смене вопросов или голоса, кэшируются по тексту и голосу и лежат в
 `MEDIA_ROOT/avatar/heygen/`. Кандидат никогда не ждёт рендера: если клипа
 нет, комната показывает персону LeonIT с озвучкой и ставит прогрев.
-Результат задачи (`/api/jobs`) содержит `rendered/cached/failed` и
-`balance_usd` — остаток кошелька после прогрева. Проверить баланс вручную:
+Результат задачи (таблица `jobs`, столбец `result`, и лог воркера
+`avatar.prewarm`) содержит `rendered/cached/failed` и `balance_usd` — остаток
+кошелька после прогрева. Проверить баланс вручную:
 
 ```bash
 curl -s -H "x-api-key: $AVATAR_HEYGEN_API_KEY" https://api.heygen.com/v3/users/me
