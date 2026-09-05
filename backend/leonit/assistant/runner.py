@@ -4,9 +4,11 @@
 либо заканчивается текстом (ход завершён), либо tool-вызовами, результаты
 которых возвращаются в диалог как JSON внутри секции данных (см.
 ``leonit.assistant.prompts``). Клиент получает события по мере появления:
-``token`` — кусок текста, ``action`` — выполненный или предложенный
-инструмент, ``reset`` — текст до tool-вызова отброшен (модель «передумала»),
-``done`` — итоговое сообщение, ``error`` — ход прерван.
+``token`` — кусок текста, ``tool_start`` — инструмент начал работу (клиент
+показывает, чем занят ассистент: генерация рубрики идёт десятки секунд),
+``action`` — выполненный или предложенный инструмент, ``reset`` — текст до
+tool-вызова отброшен (модель «передумала»), ``done`` — итоговое сообщение,
+``error`` — ход прерван.
 
 Всё, что модель узнаёт о странице, — только её адрес: он полезен как подсказка
 («открыта вакансия X»), но не заменяет проверку через инструменты.
@@ -97,7 +99,10 @@ def message_payload(message: AssistantMessage) -> dict[str, Any]:
         "role": message.role.value,
         "content": message.content,
         "actions": [
-            {key: value for key, value in action.items() if key != "tool_call_id"}
+            {
+                **{key: value for key, value in action.items() if key != "tool_call_id"},
+                "confirmed_at": action.get("confirmed_at"),
+            }
             for action in message.actions
         ],
         "created_at": message.created_at.isoformat(),
@@ -190,6 +195,9 @@ class AssistantRunner:
                     }
                 )
                 for call in response.tool_calls:
+                    yield AssistantEvent(
+                        "tool_start", {"tool": call.name, "params": _safe_params(call.arguments)}
+                    )
                     result = await self._execute(call.name, call.arguments)
                     action = result.as_action()
                     actions.append(action)
@@ -336,6 +344,15 @@ class AssistantRunner:
         thread.updated_at = utcnow()
         await self.session.commit()
         return message
+
+
+def _safe_params(arguments: str) -> dict[str, Any]:
+    """Аргументы вызова для события клиенту; невалидный JSON — пустой объект."""
+    try:
+        parsed = json.loads(arguments or "{}")
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _title_from(content: str) -> str:

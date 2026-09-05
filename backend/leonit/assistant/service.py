@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from leonit.assistant.models import AssistantMessage, AssistantThread
 from leonit.assistant.schemas import ThreadCreate
 from leonit.core.authz import Actor, authorize
-from leonit.core.errors import ConflictError, NotFoundError
+from leonit.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from leonit.core.time import utcnow
 
 
@@ -68,6 +68,31 @@ class AssistantService:
             thread.archived_at = utcnow()
             await self.session.commit()
         return thread
+
+    async def confirm_action(
+        self, actor: Actor, thread_id: UUID, message_id: UUID, index: int
+    ) -> AssistantMessage:
+        """Отметить предложение выполненным: кнопка «Подтвердить» уже вызвала продуктовый API.
+
+        Отметка хранится в самом сообщении, чтобы после перезагрузки страницы
+        кнопка не появлялась снова и действие нельзя было повторить по ошибке.
+        """
+        thread = await self.get_thread(actor, thread_id)
+        message = await self.session.get(AssistantMessage, message_id)
+        if message is None or message.thread_id != thread.id:
+            raise NotFoundError("Сообщение не найдено")
+        actions = list(message.actions or [])
+        if index < 0 or index >= len(actions):
+            raise NotFoundError("Действие не найдено")
+        action = dict(actions[index])
+        if action.get("kind") != "proposed" or not action.get("proposal"):
+            raise ValidationFailedError("Подтвердить можно только предложенное действие")
+        if not action.get("confirmed_at"):
+            action["confirmed_at"] = utcnow().isoformat()
+            actions[index] = action
+            message.actions = actions
+            await self.session.commit()
+        return message
 
     async def list_messages(self, actor: Actor, thread_id: UUID) -> list[AssistantMessage]:
         thread = await self.get_thread(actor, thread_id)

@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { DATA_CHANGED_EVENT } from "@/components/assistant/assistant-panel";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { InterviewsTable } from "@/components/candidates/interviews-table";
@@ -36,6 +37,13 @@ export default function VacancyPage() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    // Ассистент применил рубрику, вопросы или публикацию — показываем без перезагрузки.
+    const handler = () => void load();
+    window.addEventListener(DATA_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
   }, [load]);
 
   useEffect(() => {

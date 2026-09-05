@@ -86,6 +86,18 @@ async def archive_thread(thread_id: UUID, actor: CurrentActor, session: DbSessio
     await AssistantService(session).archive_thread(actor, thread_id)
 
 
+@router.post(
+    "/threads/{thread_id}/messages/{message_id}/actions/{index}/confirm",
+    response_model=MessageOut,
+)
+async def confirm_action(
+    thread_id: UUID, message_id: UUID, index: int, actor: CurrentActor, session: DbSession
+) -> MessageOut:
+    """Отметить предложение выполненным после того, как кнопка вызвала продуктовый API."""
+    message = await AssistantService(session).confirm_action(actor, thread_id, message_id, index)
+    return message_out(message)
+
+
 @router.get("/threads/{thread_id}/messages", response_model=list[MessageOut])
 async def list_messages(
     thread_id: UUID, actor: CurrentActor, session: DbSession

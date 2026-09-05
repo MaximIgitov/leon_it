@@ -19,6 +19,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { ActionResult, ProposalPreview } from "@/components/assistant/action-views";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   assistantApi,
   toolLabel,
+  toolProgressLabel,
   type AssistantAction,
   type AssistantMessage,
   type AssistantThread,
@@ -46,7 +48,20 @@ import { cn } from "@/lib/utils";
  * «Подтвердить» вызывает обычный продуктовый API, а не ручку ассистента.
  */
 
-type Draft = { text: string; actions: AssistantAction[] };
+type Draft = { text: string; actions: AssistantAction[]; running: string[] };
+
+/** Где лежит действие в истории — чтобы отметить подтверждение на сервере. */
+type ActionRef = { messageId: string; index: number } | null;
+
+/** Страницы кабинета перечитывают данные после подтверждённого действия. */
+export const DATA_CHANGED_EVENT = "leonit:data-changed";
+
+function announceDataChanged(proposal: Proposal): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(DATA_CHANGED_EVENT, { detail: { action: proposal.action, params: proposal.params } }),
+  );
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
@@ -100,10 +115,12 @@ function ActionCard({
   action,
   confirmed,
   onConfirm,
+  actionRef,
 }: {
   action: AssistantAction;
   confirmed: boolean;
-  onConfirm?: (proposal: Proposal) => Promise<void>;
+  onConfirm?: (proposal: Proposal, ref: ActionRef) => Promise<void>;
+  actionRef: ActionRef;
 }) {
   const [pending, setPending] = useState(false);
   const proposal = action.kind === "proposed" ? action.proposal : null;
@@ -115,11 +132,6 @@ function ActionCard({
     ) : (
       <CheckCircle2 className="h-4 w-4 text-success" />
     );
-  const resultText =
-    action.kind === "done" && action.result !== null && action.result !== undefined
-      ? JSON.stringify(action.result, null, 2)
-      : null;
-
   return (
     <div
       className={cn(
@@ -147,7 +159,10 @@ function ActionCard({
       {proposal ? (
         <div className="mt-3 rounded-md bg-primary/5 p-3">
           <p className="text-sm">{proposal.summary}</p>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2">
+            <ProposalPreview proposal={proposal} result={action.result} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {confirmed ? (
               <Badge className="gap-1">
                 <Check className="h-3 w-3" /> Выполнено
@@ -160,7 +175,7 @@ function ActionCard({
                   if (!onConfirm) return;
                   setPending(true);
                   try {
-                    await onConfirm(proposal);
+                    await onConfirm(proposal, actionRef);
                   } finally {
                     setPending(false);
                   }
@@ -174,16 +189,7 @@ function ActionCard({
           </div>
         </div>
       ) : null}
-      {resultText ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-            Показать данные
-          </summary>
-          <pre className="thin-scrollbar mt-2 max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-[11px] leading-snug">
-            {resultText.length > 4000 ? `${resultText.slice(0, 4000)}…` : resultText}
-          </pre>
-        </details>
-      ) : null}
+      <ActionResult action={action} />
     </div>
   );
 }
@@ -315,7 +321,7 @@ function AssistantSheet() {
       created_at: new Date().toISOString(),
     };
     setMessages((items) => [...items, optimistic]);
-    setDraft({ text: "", actions: [] });
+    setDraft({ text: "", actions: [], running: [] });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
@@ -340,22 +346,49 @@ function AssistantSheet() {
               setDraft((current) => ({
                 text: (current?.text ?? "") + event.data.text,
                 actions: current?.actions ?? [],
+                running: current?.running ?? [],
               }));
               break;
             case "reset":
-              setDraft((current) => ({ text: "", actions: current?.actions ?? [] }));
-              break;
-            case "action":
               setDraft((current) => ({
-                text: current?.text ?? "",
-                actions: [...(current?.actions ?? []), event.data],
+                text: "",
+                actions: current?.actions ?? [],
+                running: current?.running ?? [],
               }));
               break;
-            case "done":
-              setMessages((items) => [...items, event.data.message]);
+            case "tool_start":
+              setDraft((current) => ({
+                text: current?.text ?? "",
+                actions: current?.actions ?? [],
+                running: [...(current?.running ?? []), event.data.tool],
+              }));
+              break;
+            case "action":
+              setDraft((current) => {
+                const running = [...(current?.running ?? [])];
+                const position = running.indexOf(event.data.tool);
+                if (position !== -1) running.splice(position, 1);
+                return {
+                  text: current?.text ?? "",
+                  actions: [...(current?.actions ?? []), event.data],
+                  running,
+                };
+              });
+              break;
+            case "done": {
+              const saved = event.data.message;
+              setMessages((items) => [...items, saved]);
               setDraft(null);
               touchThread(event.data.thread);
+              // Предложение могли подтвердить, пока оно ещё было в черновике стрима:
+              // отметку на сервере ставим по сохранённому сообщению.
+              saved.actions.forEach((action, index) => {
+                if (action.proposal && !action.confirmed_at && confirmed.has(proposalKey(action.proposal))) {
+                  void assistantApi.confirmAction(id as string, saved.id, index).catch(() => undefined);
+                }
+              });
               break;
+            }
             case "error": {
               // Ход прерван: черновик стрима отбрасываем, а сохранённое сообщение
               // с причиной показываем как обычный ответ — оно есть и в истории.
@@ -381,11 +414,17 @@ function AssistantSheet() {
     }
   };
 
-  const confirm = async (proposal: Proposal) => {
+  const confirm = async (proposal: Proposal, ref: ActionRef) => {
     try {
       const summary = await executeProposal(proposal);
       setConfirmed((keys) => new Set(keys).add(proposalKey(proposal)));
+      announceDataChanged(proposal);
       toast({ title: "Готово", description: summary });
+      if (ref && threadId) {
+        // Отметка хранится в сообщении: после перезагрузки кнопка не вернётся.
+        const updated = await assistantApi.confirmAction(threadId, ref.messageId, ref.index).catch(() => null);
+        if (updated) setMessages((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      }
     } catch (error) {
       toast({ variant: "destructive", title: errorMessage(error, "Не удалось выполнить действие") });
     }
@@ -393,15 +432,18 @@ function AssistantSheet() {
 
   const activeThread = threads?.find((item) => item.id === threadId) ?? null;
 
-  const renderActions = (actions: AssistantAction[], prefix: string) =>
+  const renderActions = (actions: AssistantAction[], prefix: string, messageId: string | null) =>
     actions.length ? (
       <div className="space-y-2">
         {actions.map((action, index) => (
           <ActionCard
             key={`${prefix}-${index}`}
             action={action}
-            confirmed={Boolean(action.proposal && confirmed.has(proposalKey(action.proposal)))}
+            confirmed={Boolean(
+              action.confirmed_at || (action.proposal && confirmed.has(proposalKey(action.proposal))),
+            )}
             onConfirm={confirm}
+            actionRef={messageId ? { messageId, index } : null}
           />
         ))}
       </div>
@@ -516,7 +558,7 @@ function AssistantSheet() {
                       </AssistantBubble>
                     ) : (
                       <div key={message.id} className="space-y-2">
-                        {renderActions(message.actions, message.id)}
+                        {renderActions(message.actions, message.id, message.id)}
                         {message.content ? (
                           <AssistantBubble role="assistant">
                             <Markdown text={message.content} />
@@ -527,15 +569,24 @@ function AssistantSheet() {
                   )}
                   {draft ? (
                     <div className="space-y-2">
-                      {renderActions(draft.actions, "draft")}
+                      {renderActions(draft.actions, "draft", null)}
                       {draft.text ? (
                         <AssistantBubble role="assistant">
                           <Markdown text={draft.text} />
                         </AssistantBubble>
                       ) : (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Wrench className="h-3.5 w-3.5 animate-pulse" />
-                          {draft.actions.length ? "Ассистент обрабатывает результаты…" : "Ассистент думает…"}
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+                          {draft.running.length ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              {toolProgressLabel(draft.running[draft.running.length - 1])}
+                            </>
+                          ) : (
+                            <>
+                              <Wrench className="h-3.5 w-3.5 animate-pulse" />
+                              {draft.actions.length ? "Ассистент обрабатывает результаты…" : "Ассистент думает…"}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

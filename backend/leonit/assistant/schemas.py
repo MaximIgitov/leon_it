@@ -33,6 +33,8 @@ class ActionOut(BaseModel):
     # Для kind=done — что вернул инструмент (усечённо), для proposed — что подтвердить.
     result: Any = None
     proposal: dict[str, Any] | None = None
+    # Когда пользователь подтвердил предложение кнопкой (для kind=proposed).
+    confirmed_at: datetime | None = None
 
 
 class MessageIn(BaseModel):

@@ -58,6 +58,7 @@ describe("streamAssistantMessage", () => {
       'event: user\ndata: {"message":{"id":"u1","role":"user","content":"Привет","actions":[],"created_at":"2026-09-03T00:00:00Z"}}\n\n',
       'event: token\ndata: {"text":"Сейчас "}\n\nevent: tok',
       'en\ndata: {"text":"посмотрю"}\n\nevent: reset\ndata: {}\n\n',
+      'event: tool_start\ndata: {"tool":"list_vacancies","params":{}}\n\n',
       'event: action\ndata: {"kind":"done","tool":"list_vacancies","params":{},"summary":"Найдено: 1","result":[],"proposal":null}\n\n',
       `event: error\ndata: ${JSON.stringify({ detail: "Не удалось получить ответ модели", message })}\n\n`,
     ];
@@ -66,7 +67,15 @@ describe("streamAssistantMessage", () => {
     const events: StreamEvent[] = [];
     await streamAssistantMessage("t1", { content: "Привет", page_path: "/vacancies" }, (event) => events.push(event));
 
-    expect(events.map((event) => event.type)).toEqual(["user", "token", "token", "reset", "action", "error"]);
+    expect(events.map((event) => event.type)).toEqual([
+      "user",
+      "token",
+      "token",
+      "reset",
+      "tool_start",
+      "action",
+      "error",
+    ]);
     const error = events.at(-1);
     expect(error?.type).toBe("error");
     if (error?.type === "error") {
