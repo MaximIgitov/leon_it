@@ -39,7 +39,7 @@ class InterviewSettings(BaseModel):
     followups_enabled: bool = False
     followups_max: int = Field(default=1, ge=0, le=3)
     tts_enabled: bool = True
-    voice: str = Field(default="alloy", max_length=64)
+    voice: str = Field(default="nova", max_length=64)
     invitation_days: int = Field(default=7, ge=1, le=60)
     candidate_feedback_mode: FeedbackModeLiteral = "after_decision"
     candidate_feedback_after_days: int = Field(default=3, ge=1, le=30)

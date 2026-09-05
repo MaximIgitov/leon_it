@@ -124,7 +124,7 @@ async def test_stub_provider_clip_is_served_and_cached(
     monkeypatch.setattr(room_service, "get_avatar_provider", lambda settings=None: stub)
     link, body = await _revealed(client)
     assert body["avatar"]["enabled"] is True
-    assert body["avatar"]["clip_url"] == "https://cdn.example/alloy/1.mp4", body
+    assert body["avatar"]["clip_url"] == "https://cdn.example/nova/1.mp4", body
     assert body["avatar"]["duration_s"] == 4.2
     again = (await client.post(f"/api/public/invitations/{link}/questions/0/reveal")).json()
     assert again["avatar"]["clip_url"] == body["avatar"]["clip_url"]

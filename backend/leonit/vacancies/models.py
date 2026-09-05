@@ -84,7 +84,7 @@ class Vacancy(TimestampMixin, Base):
     followups_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     followups_max: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     tts_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    voice: Mapped[str] = mapped_column(String(64), default="alloy", nullable=False)
+    voice: Mapped[str] = mapped_column(String(64), default="nova", nullable=False)
     invitation_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
     candidate_feedback_mode: Mapped[CandidateFeedbackMode] = mapped_column(
         Enum(CandidateFeedbackMode, name="candidate_feedback_mode", native_enum=False, length=24),

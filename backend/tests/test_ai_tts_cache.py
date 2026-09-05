@@ -33,7 +33,7 @@ async def test_concurrent_misses_synthesize_once(tmp_path: Path) -> None:
     assert tts.calls == 1
     assert len({key for key, _ in results}) == 1
     assert all(content_type == "audio/mpeg" for _, content_type in results)
-    assert await storage.size(results[0][0]) == len("alloy:Расскажите о себе".encode())
+    assert await storage.size(results[0][0]) == len("nova:Расскажите о себе".encode())
     assert len(_synthesis_locks) == 0  # блокировка отпущена последним ожидающим
 
 
@@ -44,7 +44,7 @@ async def test_second_call_hits_cache(tmp_path: Path) -> None:
     assert key.startswith("tts/") and key.endswith(".mp3")
     assert content_type == "audio/mpeg"
     assert tts.calls == 1
-    assert await storage.size(key) == len("alloy:Расскажите о себе".encode())
+    assert await storage.size(key) == len("nova:Расскажите о себе".encode())
 
     again_key, again_type = await get_or_synthesize(storage, tts, "Расскажите о себе")
     assert again_key == key and again_type == "audio/mpeg"
@@ -55,9 +55,9 @@ async def test_voice_text_and_model_change_the_key(tmp_path: Path) -> None:
     storage = LocalStorage(tmp_path)
     tts = CountingTTS()
     key_default, _ = await get_or_synthesize(storage, tts, "Вопрос")
-    key_voice, _ = await get_or_synthesize(storage, tts, "Вопрос", voice="nova")
+    key_voice, _ = await get_or_synthesize(storage, tts, "Вопрос", voice="shimmer")
     key_text, _ = await get_or_synthesize(storage, tts, "Вопрос?")
     assert len({key_default, key_voice, key_text}) == 3
     assert tts.calls == 3
-    assert tts_cache_key("Вопрос", "alloy", "tts-1", "mp3") == key_default
-    assert tts_cache_key("Вопрос", "alloy", "tts-2", "mp3") != key_default
+    assert tts_cache_key("Вопрос", "nova", "tts-1", "mp3") == key_default
+    assert tts_cache_key("Вопрос", "nova", "tts-2", "mp3") != key_default
