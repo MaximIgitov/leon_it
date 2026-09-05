@@ -29,6 +29,7 @@ npm test
 |---|---|
 | `chromium` | сквозной путь кандидата и регрессия кабинета рекрутера на десктопе |
 | `mobile-chrome` | тот же путь кандидата на профиле Pixel 7: узкий экран, касания |
+| `firefox` | оба сценария на движке Gecko; включается `E2E_FIREFOX=1` после `npx playwright install firefox`, камера и микрофон — фейковые через prefs. В CI не запускается: там скачан только Chromium |
 
 ```bash
 npm run test:desktop      # только десктоп
