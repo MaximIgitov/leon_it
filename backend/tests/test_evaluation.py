@@ -709,16 +709,19 @@ def test_dataset_is_well_formed() -> None:
     base_ids = {case.id for case in base}
     lengths: list[int] = []
     for case in cases:
-        assert 3 <= len(case.vacancy["rubric"]) <= 4
+        # Синтетические вакансии — 3–4 компетенции и 2–3 вопроса; вакансия заказчика
+        # (кейсы 29–30) — 6 компетенций по рамке Napoleon IT и 6 вопросов.
+        assert 3 <= len(case.vacancy["rubric"]) <= 6
         assert all(item["levels"] for item in case.vacancy["rubric"])
-        assert 2 <= len(case.questions) <= 3
+        assert 2 <= len(case.questions) <= 6
         assert all(question["expected_points"] for question in case.questions)
         assert case.expert_rationale
         for transcript in case.transcripts:
             if transcript["status"] == "done":
                 words = len(transcript["text"].split())
-                # Короткие и оборванные ответы — намеренные кейсы, но пустых быть не должно.
-                assert 10 <= words <= 220, (case.id, transcript["question_index"], words)
+                # Короткие и оборванные ответы — намеренные кейсы, но пустых быть не должно;
+                # реальные ответы из примеров заказчика длиннее синтетических.
+                assert 10 <= words <= 450, (case.id, transcript["question_index"], words)
                 lengths.append(words)
             else:
                 assert transcript["text"] is None
@@ -728,8 +731,8 @@ def test_dataset_is_well_formed() -> None:
             twin = next(item for item in base if item.id == case.base_case)
             assert case.expert_label == twin.expert_label
     # Основная масса транскриптов — обычной длины, как их отдаёт STT.
-    typical = sum(1 for words in lengths if 80 <= words <= 200)
-    assert typical / len(lengths) >= 0.7
+    typical = sum(1 for words in lengths if 80 <= words <= 250)
+    assert typical / len(lengths) >= 0.65
 
 
 async def test_eval_agreement_runs_on_dataset_with_fake_provider(tmp_path: Path) -> None:
