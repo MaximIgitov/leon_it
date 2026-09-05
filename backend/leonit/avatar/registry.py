@@ -47,3 +47,14 @@ def get_avatar_provider(settings: Settings | None = None) -> AvatarProvider:
             f"registered: {registered_avatar_providers()}"
         )
     return factory(settings)
+
+
+def avatar_available(settings: Settings | None = None) -> bool:
+    """Можно ли включить аватар на этом сервере: флаг и настроенный провайдер."""
+    settings = settings or get_settings()
+    if not settings.AVATAR_ENABLED:
+        return False
+    try:
+        return get_avatar_provider(settings).enabled
+    except ValueError:
+        return False

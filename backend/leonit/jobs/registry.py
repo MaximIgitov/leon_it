@@ -23,6 +23,7 @@ RESOURCES: tuple[Resource, ...] = ("llm", "ffmpeg", "default")
 # (аналог MODEL_MODULES в leonit.models).
 JOB_HANDLER_MODULES: tuple[str, ...] = (
     "leonit.jobs.builtin",
+    "leonit.avatar.jobs",
     "leonit.notifications.jobs",
     "leonit.evaluation.jobs",
     "leonit.pipeline.jobs",

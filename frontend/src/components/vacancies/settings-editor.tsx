@@ -77,6 +77,12 @@ function ToggleRow({
   );
 }
 
+export function avatarHint(available: boolean): string {
+  return available
+    ? "Виртуальный интервьюер произносит вопросы на видео. Клипы готовятся один раз при публикации; у провайдера это около доллара за минуту видео"
+    : "На этом сервере провайдер аватара не настроен: кандидат видит персону LeonIT с озвучкой";
+}
+
 export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorProps) {
   const { toast } = useToast();
   const [settings, setSettings] = useState<InterviewSettings>(vacancy.settings);
@@ -130,6 +136,7 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
           <ToggleRow label="Тренировочный вопрос" hint="Перед первым вопросом кандидат проверяет запись на пробном вопросе" checked={settings.practice_question_enabled} disabled={!editable} onChange={(v) => patch({ practice_question_enabled: v })} />
           <ToggleRow label="Озвучивать вопросы" hint="Вопрос читается синтезированным голосом; текст показывается всегда" checked={settings.tts_enabled} disabled={!editable} onChange={(v) => patch({ tts_enabled: v })} />
           <ToggleRow label="Уточняющие вопросы" hint="Один уточняющий вопрос после основных — по вопросам с пометкой «допускает уточнение»" checked={settings.followups_enabled} disabled={!editable} onChange={(v) => patch({ followups_enabled: v })} />
+          <ToggleRow label="ИИ-аватар интервьюера" hint={avatarHint(Boolean(vacancy.avatar_available))} checked={settings.avatar_enabled} disabled={!editable || !vacancy.avatar_available} onChange={(v) => patch({ avatar_enabled: v })} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">

@@ -35,6 +35,9 @@ class AvatarProvider(Protocol):
     name: str
     # False у заглушки: комната сообщает клиенту enabled=false, даже если флаг включён.
     enabled: bool
+    # True — рендер занимает минуты: комната не ждёт, а ставит задачу прогрева
+    # (``leonit.avatar.jobs``) и отдаёт только готовые клипы из кэша.
+    background_render: bool
 
     async def render(
         self, question_text: str, voice: str | None, language: str
@@ -46,6 +49,7 @@ class NullAvatarProvider:
 
     name = "none"
     enabled = False
+    background_render = False
 
     async def render(
         self, question_text: str, voice: str | None, language: str

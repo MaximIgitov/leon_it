@@ -46,6 +46,20 @@ async def _read_manifest(storage: Storage, key: str) -> AvatarClip | None:
         return None
 
 
+async def lookup(
+    storage: Storage,
+    provider: AvatarProvider,
+    text: str,
+    voice: str | None,
+    language: str,
+) -> AvatarClip | None:
+    """Только кэш, без рендера: так комната работает с провайдерами, где рендер долгий."""
+    key = avatar_cache_key(text, voice, language, provider.name)
+    if await storage.exists(key):
+        return await _read_manifest(storage, key)
+    return None
+
+
 async def get_or_render(
     storage: Storage,
     provider: AvatarProvider,
@@ -55,10 +69,9 @@ async def get_or_render(
 ) -> AvatarClip | None:
     """Вернуть клип из кэша или отрендерить; ``None`` — провайдер клип не дал."""
     key = avatar_cache_key(text, voice, language, provider.name)
-    if await storage.exists(key):
-        cached = await _read_manifest(storage, key)
-        if cached is not None:
-            return cached
+    cached = await lookup(storage, provider, text, voice, language)
+    if cached is not None:
+        return cached
     async with _render_locks(key):
         if await storage.exists(key):
             cached = await _read_manifest(storage, key)
