@@ -47,7 +47,7 @@ Compose-сервисы: `postgres`, `api` (uvicorn), `worker` (очередь з
 | Группа | Переменные | Заметки |
 |---|---|---|
 | Базовые | `ENVIRONMENT=production`, `PUBLIC_URL`, `CORS_ORIGINS`, `JWT_SECRET`, `DATA_ENCRYPTION_KEY` | в production обязательны, генерирует bootstrap/deploy |
-| Домен | `DOMAIN` (основной: сертификат и проверка health при выкате), `DOMAIN_ALIASES` (через пробел: `www.` и старый `<ip>.sslip.io`), `ACME_EMAIL` | после смены — `docker compose up -d`, Caddy сам получит сертификаты; `PUBLIC_URL`, `CORS_ORIGINS` и `HH_REDIRECT_URL` менять вместе; переменная `PUBLIC_URL` в GitHub задаёт адрес для сборки фронтенда (см. `deploy/README.md`) |
+| Домен | `DOMAIN` (основной: сертификат и проверка health при выкате), `DOMAIN_ALIASES` (через пробел и в кавычках: `www.` и старый `<ip>.sslip.io`), `ACME_EMAIL` | после смены — `docker compose up -d`, Caddy сам получит сертификаты; `PUBLIC_URL`, `CORS_ORIGINS` и `HH_REDIRECT_URL` менять вместе; переменная `PUBLIC_URL` в GitHub задаёт адрес для сборки фронтенда (см. `deploy/README.md`) |
 | Модели | `MODEL_PROVIDER`, `MODEL_DEFAULT_BASE_URL` (по умолчанию `https://api.aitunnel.ru/v1`), `MODEL_DEFAULT_API_KEY`, `MODEL_<ROLE>_*` для ролей `evaluator`, `assistant`, `interviewer`, `stt`, `tts` | без ключа в production нужен `MODEL_ALLOW_FAKE_IN_PRODUCTION=true` (фейк — только для демо контура) |
 | Письма | `EMAIL_MODE=console|smtp`, `EMAIL_FROM`, `SMTP_HOST/PORT/USER/PASSWORD/STARTTLS` | в `console` письма видны во вкладке «Письма» и в логах |
 | Медиа | `MEDIA_ROOT=/data/media`, `FFMPEG_BIN`, `FFMPEG_TIMEOUT_S`, `RETENTION_PURGE_HOUR_UTC`, `PIPELINE_STALE_PROCESSING_S` | срок хранения — настройка организации `retention_days` |
