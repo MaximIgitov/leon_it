@@ -53,7 +53,12 @@ from leonit.evaluation.schemas import (
     VacancyContext,
     output_to_dict,
 )
-from leonit.evaluation.scoring import ScoringResult, Thresholds, score_output
+from leonit.evaluation.scoring import (
+    ScoringResult,
+    Thresholds,
+    score_output,
+    unassessable_competencies,
+)
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.notifications.outreach import (
     notify_evaluation_ready,
@@ -345,7 +350,18 @@ async def evaluate_payload(
     output = normalize_output(output, transcripts_ctx)
     quotes_found, quotes_total = verify_quotes(output, safe_transcripts)
     rubric = [item.model_dump() for item in vacancy_ctx.rubric]
-    scoring = score_output(output, rubric, thresholds=thresholds_from_settings(settings))
+    available = {
+        item.question_index for item in transcripts_ctx if item.status == "done" and item.text
+    }
+    unassessable = unassessable_competencies(
+        rubric, [question.model_dump() for question in questions_ctx], available
+    )
+    scoring = score_output(
+        output,
+        rubric,
+        thresholds=thresholds_from_settings(settings),
+        unassessable=unassessable,
+    )
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else None
     return EvaluationResult(
         output=output,

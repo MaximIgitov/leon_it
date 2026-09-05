@@ -758,3 +758,78 @@ async def test_eval_agreement_runs_on_dataset_with_fake_provider(tmp_path: Path)
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["total"] == len(base)
     assert all(item["scores"] for item in saved["results"])
+
+
+# ------------------------------------------------- компетенции без данных
+
+
+def test_unassessable_competencies_are_excluded_and_cap_recommendation() -> None:
+    # Транскрипта по SQL нет: компетенция не входит в среднее и не даёт «подходит».
+    scores = [_cs("python", 4), _cs("sql", 1), _cs("soft", 4)]
+    assert scoring.fit_score(scores, RUBRIC) == 60.0
+    excluded = scoring.fit_score(scores, RUBRIC, unassessable=["sql"])
+    assert excluded == 100.0
+    result = scoring.recommend(
+        excluded, competency_scores=scores, rubric=RUBRIC, unassessable=["sql"]
+    )
+    assert result.recommendation == "needs_check"
+    assert any("нет данных по компетенциям: sql" in reason for reason in result.reasons)
+    # Единица по недоступной критичной компетенции — не провал, а отсутствие данных.
+    assert not any("критичной" in reason for reason in result.reasons)
+    # Слабые ответы по оценённым компетенциям остаются «не подходит».
+    weak = [_cs("python", 1), _cs("sql", 1), _cs("soft", 2)]
+    weak_score = scoring.fit_score(weak, RUBRIC, unassessable=["sql"])
+    assert (
+        scoring.recommend(
+            weak_score, competency_scores=weak, rubric=RUBRIC, unassessable=["sql"]
+        ).recommendation
+        == "needs_check"
+    )
+    # Все компетенции без данных — балла нет, рекомендация «нужна проверка».
+    assert scoring.fit_score(scores, RUBRIC, unassessable=["python", "sql", "soft"]) is None
+    none = scoring.recommend(None, unassessable=["python", "sql", "soft"])
+    assert none.recommendation == "needs_check"
+    assert none.reasons[0].startswith("нет данных по компетенциям")
+
+
+def test_unassessable_competencies_follow_missing_transcripts() -> None:
+    questions = [
+        {"index": 0, "competency_ids": ["python"]},
+        {"index": 1, "competency_ids": ["sql", "soft"]},
+        {"index": 2, "competency_ids": ["soft"]},
+    ]
+    # Есть только ответ на третий вопрос: python и sql без данных, soft оценим.
+    assert scoring.unassessable_competencies(RUBRIC, questions, {2}) == ["python", "sql"]
+    assert scoring.unassessable_competencies(RUBRIC, questions, {0, 1, 2}) == []
+    # Компетенция без привязанных вопросов оценивается по всему интервью.
+    rubric = [*RUBRIC, {"id": "extra", "name": "Прочее", "weight": 2, "levels": {}}]
+    assert scoring.unassessable_competencies(rubric, questions, set()) == ["python", "sql", "soft"]
+
+
+async def test_evaluate_payload_marks_competencies_without_transcripts() -> None:
+    llm = RecordingLLM()
+    vacancy = {"title": "Python", "rubric": RUBRIC}
+    questions = [
+        {
+            "index": 0,
+            "text": "Что такое GIL?",
+            "competency_ids": ["python"],
+            "expected_points": ["глобальная блокировка"],
+        },
+        {
+            "index": 1,
+            "text": "Как найти медленный запрос?",
+            "competency_ids": ["sql", "soft"],
+            "expected_points": ["EXPLAIN"],
+        },
+    ]
+    transcripts = [
+        {"question_index": 0, "answer_id": "a-1", "status": "done", "text": TRANSCRIPTS[0]},
+        {"question_index": 1, "answer_id": "a-2", "status": "failed", "text": None},
+    ]
+    result = await evaluate_payload(vacancy, questions, transcripts, llm=llm)
+    # Фейк ставит 2 по каждой компетенции: балл тот же, что и с полными данными,
+    # но без транскрипта по sql и soft рекомендация — «нужна проверка».
+    assert result.fit_score == 33.3
+    assert result.recommendation == "needs_check"
+    assert any("нет данных по компетенциям: sql, soft" in r for r in result.scoring.reasons)

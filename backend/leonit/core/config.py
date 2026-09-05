@@ -127,24 +127,32 @@ class Settings(BaseSettings):
     MODEL_DEFAULT_BASE_URL: str = _DEFAULT_MODEL_BASE_URL
     MODEL_DEFAULT_API_KEY: str | None = None
     MODEL_DEFAULT_PROXY_URL: str | None = None
+    # Лимит генерации (max_tokens). Агрегаторы прогнозируют цену запроса по
+    # max_tokens, а без него — по максимуму модели, и при низком балансе
+    # отклоняют запрос ещё до генерации (HTTP 402). Умолчания по ролям —
+    # в leonit.ai.config.
+    MODEL_DEFAULT_MAX_TOKENS: int | None = None
 
     MODEL_EVALUATOR_BASE_URL: str | None = None
     MODEL_EVALUATOR_API_KEY: str | None = None
     MODEL_EVALUATOR_MODEL: str = "claude-sonnet-5"
     MODEL_EVALUATOR_PROXY_URL: str | None = None
     MODEL_EVALUATOR_TIMEOUT_S: float | None = None
+    MODEL_EVALUATOR_MAX_TOKENS: int | None = None
 
     MODEL_ASSISTANT_BASE_URL: str | None = None
     MODEL_ASSISTANT_API_KEY: str | None = None
     MODEL_ASSISTANT_MODEL: str = "claude-sonnet-5"
     MODEL_ASSISTANT_PROXY_URL: str | None = None
     MODEL_ASSISTANT_TIMEOUT_S: float | None = None
+    MODEL_ASSISTANT_MAX_TOKENS: int | None = None
 
     MODEL_INTERVIEWER_BASE_URL: str | None = None
     MODEL_INTERVIEWER_API_KEY: str | None = None
     MODEL_INTERVIEWER_MODEL: str = "claude-haiku-4.5"
     MODEL_INTERVIEWER_PROXY_URL: str | None = None
     MODEL_INTERVIEWER_TIMEOUT_S: float | None = None
+    MODEL_INTERVIEWER_MAX_TOKENS: int | None = None
 
     MODEL_STT_BASE_URL: str | None = None
     MODEL_STT_API_KEY: str | None = None

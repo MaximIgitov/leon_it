@@ -26,6 +26,16 @@ _DEFAULT_TIMEOUTS_S: dict[str, float] = {
     "tts": 60.0,
 }
 
+# Лимит генерации по ролям. Заключение оценщика на 3–5 вопросов — 2–4 тысячи
+# токенов, ответ ассистента и план уточняющих вопросов — меньше. Без лимита
+# агрегатор оценивает стоимость запроса по максимуму модели и при низком
+# балансе отвечает 402 ещё до генерации, хотя списывает только за факт.
+_DEFAULT_MAX_TOKENS: dict[str, int] = {
+    "evaluator": 8192,
+    "assistant": 4096,
+    "interviewer": 1024,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RoleConfig:
@@ -36,6 +46,8 @@ class RoleConfig:
     model: str
     proxy_url: str | None
     timeout_s: float
+    # Лимит генерации для LLM-ролей; None — не передавать (речь).
+    max_tokens: int | None = None
 
     @property
     def configured(self) -> bool:
@@ -56,6 +68,11 @@ def get_role_config(role: str, settings: Settings | None = None) -> RoleConfig:
     base_url = settings.model_role_value(role, "BASE_URL") or settings.MODEL_DEFAULT_BASE_URL
     proxy_url = settings.model_role_value(role, "PROXY_URL") or settings.MODEL_DEFAULT_PROXY_URL
     timeout_s = settings.model_role_value(role, "TIMEOUT_S") or _DEFAULT_TIMEOUTS_S[role]
+    max_tokens = (
+        getattr(settings, f"MODEL_{role.upper()}_MAX_TOKENS", None)
+        or settings.MODEL_DEFAULT_MAX_TOKENS
+        or _DEFAULT_MAX_TOKENS.get(role)
+    )
     return RoleConfig(
         role=role,
         provider=settings.effective_model_provider,
@@ -64,6 +81,7 @@ def get_role_config(role: str, settings: Settings | None = None) -> RoleConfig:
         model=str(settings.model_role_value(role, "MODEL")),
         proxy_url=str(proxy_url) if proxy_url else None,
         timeout_s=float(timeout_s),
+        max_tokens=int(max_tokens) if max_tokens else None,
     )
 
 
