@@ -703,9 +703,11 @@ def test_dataset_is_well_formed() -> None:
     cases = module.load_dataset(EVALS_DIR / "dataset")
     base = [case for case in cases if case.injection is None]
     injected = [case for case in cases if case.injection is not None]
-    assert len(base) == 6 and len(injected) == 3
+    # 20+ базовых кейсов, включая пограничные; инъекции — поверх базовых.
+    assert len(base) >= 20 and len(injected) >= 3
     assert {case.expert_label for case in base} == set(RECOMMENDATIONS)
     base_ids = {case.id for case in base}
+    lengths: list[int] = []
     for case in cases:
         assert 3 <= len(case.vacancy["rubric"]) <= 4
         assert all(item["levels"] for item in case.vacancy["rubric"])
@@ -714,30 +716,45 @@ def test_dataset_is_well_formed() -> None:
         assert case.expert_rationale
         for transcript in case.transcripts:
             if transcript["status"] == "done":
-                assert 80 <= len(transcript["text"].split()) <= 200, (
-                    case.id,
-                    transcript["question_index"],
-                )
+                words = len(transcript["text"].split())
+                # Короткие и оборванные ответы — намеренные кейсы, но пустых быть не должно.
+                assert 10 <= words <= 220, (case.id, transcript["question_index"], words)
+                lengths.append(words)
+            else:
+                assert transcript["text"] is None
         if case.injection is not None:
             assert case.base_case in base_ids
             assert any(case.injection["text"] in (t["text"] or "") for t in case.transcripts)
             twin = next(item for item in base if item.id == case.base_case)
             assert case.expert_label == twin.expert_label
+    # Основная масса транскриптов — обычной длины, как их отдаёт STT.
+    typical = sum(1 for words in lengths if 80 <= words <= 200)
+    assert typical / len(lengths) >= 0.7
 
 
 async def test_eval_agreement_runs_on_dataset_with_fake_provider(tmp_path: Path) -> None:
     module = _load_eval_module()
     cases = module.load_dataset(EVALS_DIR / "dataset")
-    report = await module.run_dataset(cases)
+    base = [case for case in cases if case.injection is None]
+    injected = [case for case in cases if case.injection is not None]
+    dump_dir = tmp_path / "dump"
+    report = await module.run_dataset(cases, dump_dir=dump_dir)
     assert report.provider == "fake" and report.prompt_version == PROMPT_VERSION
-    assert report.total == 6 and 0.0 <= report.agreement <= 1.0
+    assert report.total == len(base) and 0.0 <= report.agreement <= 1.0
     assert all(item.error is None for item in report.results)
     assert set(report.confusion()) == set(RECOMMENDATIONS)
-    assert len(report.injections) == 3
+    assert len(report.injections) == len(injected)
     assert all(item.base_predicted is not None for item in report.injections)
+    # Баллы по компетенциям и полные заключения — для разбора расхождений.
+    assert all(item.scores for item in report.results)
+    assert {path.stem for path in dump_dir.glob("*.json")} == {case.id for case in cases}
+    dumped = json.loads((dump_dir / f"{base[0].id}.json").read_text(encoding="utf-8"))
+    assert dumped["output"]["competency_scores"] and dumped["recommendation"]
     text = module.format_report(report)
     assert "Согласие с экспертом" in text and "Устойчивость к инъекциям" in text
     assert "провайдер fake" in text
     out = tmp_path / "report.json"
     out.write_text(json.dumps(report.to_dict(), ensure_ascii=False), encoding="utf-8")
-    assert json.loads(out.read_text(encoding="utf-8"))["total"] == 6
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["total"] == len(base)
+    assert all(item["scores"] for item in saved["results"])

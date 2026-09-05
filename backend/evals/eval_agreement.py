@@ -70,6 +70,9 @@ class CaseResult:
     quotes_total: int
     red_flags: list[str]
     error: str | None = None
+    # Баллы модели по компетенциям рубрики — чтобы расхождение с экспертом
+    # сводилось к конкретной компетенции, а не к итоговому числу.
+    scores: dict[str, int] = field(default_factory=dict)
 
     @property
     def agreed(self) -> bool:
@@ -147,6 +150,7 @@ class Report:
                     "quotes_found": item.quotes_found,
                     "quotes_total": item.quotes_total,
                     "red_flags": item.red_flags,
+                    "scores": item.scores,
                     "error": item.error,
                 }
                 for item in self.results
@@ -211,7 +215,7 @@ def load_dataset(path: Path = DATASET_DIR) -> list[Case]:
 # ---------------------------------------------------------------------- run
 
 
-async def run_case(case: Case, llm: LLMProvider) -> CaseResult:
+async def run_case(case: Case, llm: LLMProvider, *, dump_dir: Path | None = None) -> CaseResult:
     try:
         result = await evaluate_payload(case.vacancy, case.questions, case.transcripts, llm=llm)
     except Exception as error:  # кейс не должен ронять весь прогон
@@ -228,6 +232,24 @@ async def run_case(case: Case, llm: LLMProvider) -> CaseResult:
             error=f"{type(error).__name__}: {error}",
         )
     found, total = verify_quotes(result.output, transcripts_context(case.transcripts))
+    if dump_dir is not None:
+        # Полное заключение модели — для разбора расхождений и калибровки промпта.
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        (dump_dir / f"{case.id}.json").write_text(
+            json.dumps(
+                {
+                    "case_id": case.id,
+                    "expert": case.expert_label,
+                    "recommendation": result.recommendation,
+                    "fit_score": result.fit_score,
+                    "reasons": list(result.scoring.reasons),
+                    "output": result.output.model_dump(mode="json"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     return CaseResult(
         case_id=case.id,
         expert=case.expert_label,
@@ -238,10 +260,13 @@ async def run_case(case: Case, llm: LLMProvider) -> CaseResult:
         quotes_found=found,
         quotes_total=total,
         red_flags=list(result.output.red_flags),
+        scores={item.competency_id: int(item.score) for item in result.output.competency_scores},
     )
 
 
-async def run_dataset(cases: list[Case], *, llm: LLMProvider | None = None) -> Report:
+async def run_dataset(
+    cases: list[Case], *, llm: LLMProvider | None = None, dump_dir: Path | None = None
+) -> Report:
     settings = get_settings()
     llm = llm or get_llm("evaluator", settings=settings)
     report = Report(
@@ -253,11 +278,11 @@ async def run_dataset(cases: list[Case], *, llm: LLMProvider | None = None) -> R
     injected = [case for case in cases if case.injection is not None]
     predicted_by_id: dict[str, str] = {}
     for case in base_cases:
-        result = await run_case(case, llm)
+        result = await run_case(case, llm, dump_dir=dump_dir)
         report.results.append(result)
         predicted_by_id[case.id] = result.predicted
     for case in injected:
-        result = await run_case(case, llm)
+        result = await run_case(case, llm, dump_dir=dump_dir)
         report.injections.append(
             InjectionResult(
                 case_id=case.id,
@@ -329,6 +354,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default=None, help="подстрока id кейса")
     parser.add_argument("--json", type=Path, default=None, help="сохранить отчёт в JSON")
     parser.add_argument(
+        "--dump", type=Path, default=None, help="каталог для полных заключений модели по кейсам"
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="код возврата 1, если согласие ниже цели или инъекция изменила метку",
@@ -347,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     if not cases:
         print("Кейсы не найдены", file=sys.stderr)
         return 2
-    report = asyncio.run(run_dataset(cases))
+    report = asyncio.run(run_dataset(cases, dump_dir=args.dump))
     # JSON — до печати: даже если вывод в консоль упадёт, отчёт уже на диске.
     if args.json:
         args.json.write_text(

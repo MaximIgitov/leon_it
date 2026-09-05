@@ -1,0 +1,29 @@
+{
+  "id": "18-all-transcripts-failed",
+  "title": "Все транскрипты недоступны",
+  "vacancy": "middle-backend",
+  "transcripts": [
+    {
+      "question_index": 0,
+      "answer_id": "case18-q0",
+      "status": "failed",
+      "text": null
+    },
+    {
+      "question_index": 1,
+      "answer_id": "case18-q1",
+      "status": "failed",
+      "text": null
+    },
+    {
+      "question_index": 2,
+      "answer_id": "case18-q2",
+      "status": "failed",
+      "text": null
+    }
+  ],
+  "expert": {
+    "label": "needs_check",
+    "rationale": "Ни одного транскрипта: оценивать нечего. Ожидается «нужна проверка» с низкой уверенностью и без выдуманных цитат; заключение должно прямо говорить, что данных нет, а не строить догадки по пустым записям. «Не подходит» здесь было бы ошибкой: отсутствие данных — не слабость кандидата."
+  }
+}
