@@ -19,7 +19,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { ActionResult, ProposalPreview } from "@/components/assistant/action-views";
+import { ActionResult, ProposalPreview, proposalCaption } from "@/components/assistant/action-views";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,7 +185,7 @@ function ActionCard({
                 Подтвердить
               </Button>
             )}
-            <span className="text-xs text-muted-foreground">Необратимое действие — только после вашего подтверждения</span>
+            <span className="text-xs text-muted-foreground">{proposalCaption(proposal)}</span>
           </div>
         </div>
       ) : null}
