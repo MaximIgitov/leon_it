@@ -14,6 +14,10 @@
 модель. Пропущенная компетенция считается как 1 (нет подтверждения — нет
 балла) и не даёт «fit»; выдуманные компетенции вне рубрики в среднее не
 входят; дубли по ``competency_id`` учитываются один раз.
+
+Нет данных ≠ плохо: компетенция, все вопросы которой остались без транскрипта
+(``unassessable``), в среднее не входит и не даёт «fit» — рекомендация
+«нужна проверка», а не «не подходит», даже если модель поставила по ней 1.
 """
 
 from __future__ import annotations
@@ -161,19 +165,26 @@ def fit_score(
     competency_scores: list[CompetencyScore],
     rubric: Iterable[Mapping[str, Any]] | None,
     question_assessments: list[QuestionAssessment] | None = None,
+    *,
+    unassessable: Iterable[str] = (),
 ) -> float | None:
     """Взвешенное среднее по компетенциям рубрики (веса из рубрики); без рубрики —
-    среднее по вопросам. None — оценивать нечего."""
+    среднее по вопросам. Компетенции из ``unassessable`` (нет транскриптов) в
+    среднее не входят. None — оценивать нечего."""
     rubric_list = list(rubric or ())
+    skipped = set(unassessable)
     if rubric_list and competency_scores:
         coverage = rubric_coverage(competency_scores, rubric_list)
         if coverage.unmatched:
             # Баллы вообще не привязаны к рубрике: считаем простое среднее, а
             # recommend() не даст «fit» и объяснит почему.
             return normalize(sum(item.score for item in competency_scores) / len(competency_scores))
-        total = sum(weight for _, _, weight in coverage.scored)
+        assessed = [item for item in coverage.scored if item[0] not in skipped]
+        if skipped and not assessed:
+            return None
+        total = sum(weight for _, _, weight in assessed)
         if total > 0:
-            weighted = sum(score * weight for _, score, weight in coverage.scored)
+            weighted = sum(score * weight for _, score, weight in assessed)
             return normalize(weighted / total)
     if question_assessments:
         return normalize(
@@ -192,13 +203,19 @@ def recommend(
     rubric: Iterable[Mapping[str, Any]] | None = None,
     confidence: float | None = None,
     thresholds: Thresholds | None = None,
+    unassessable: Iterable[str] = (),
 ) -> ScoringResult:
     """Рекомендация по порогам с ограничениями: единица по критичной компетенции,
-    пропущенная компетенция рубрики и низкая уверенность не дают «fit»."""
+    пропущенная компетенция рубрики, компетенция без данных и низкая
+    уверенность не дают «fit»."""
     thresholds = thresholds or Thresholds()
     reasons: list[str] = []
+    skipped = [item for item in unassessable if item]
     if score is None:
-        return ScoringResult(None, "needs_check", ["нет баллов для расчёта"])
+        if skipped:
+            reasons.append("нет данных по компетенциям: " + ", ".join(skipped))
+        reasons.append("нет баллов для расчёта")
+        return ScoringResult(None, "needs_check", reasons)
 
     if score >= thresholds.fit:
         recommendation: Recommendation = "fit"
@@ -214,7 +231,14 @@ def recommend(
 
     rubric_list = list(rubric or ())
     weights = rubric_weights(rubric_list)
+    ids = _rubric_ids(rubric_list)
+    if skipped:
+        # Транскриптов по этим компетенциям нет: ни «подходит», ни «не подходит».
+        reasons.append("нет данных по компетенциям: " + ", ".join(skipped))
+        recommendation = "needs_check"
     for item in competency_scores or ():
+        if (_rubric_id_of(item, ids) or item.competency_id) in skipped:
+            continue
         if item.score == SCALE_MIN and _weight_of(item, weights) >= CRITICAL_WEIGHT:
             reasons.append(f"балл 1 по критичной компетенции «{item.name}»")
             if recommendation == "fit":
@@ -222,12 +246,13 @@ def recommend(
 
     if rubric_list and competency_scores:
         coverage = rubric_coverage(competency_scores, rubric_list)
+        missing = [item for item in coverage.missing if item not in skipped]
         if coverage.unmatched:
             reasons.append("баллы не привязаны к компетенциям рубрики")
             if recommendation == "fit":
                 recommendation = "needs_check"
-        elif coverage.missing:
-            reasons.append("нет балла по компетенциям: " + ", ".join(coverage.missing))
+        elif missing:
+            reasons.append("нет балла по компетенциям: " + ", ".join(missing))
             if recommendation == "fit":
                 recommendation = "needs_check"
         if coverage.ignored:
@@ -242,19 +267,51 @@ def recommend(
     return ScoringResult(score, recommendation, reasons)
 
 
+def unassessable_competencies(
+    rubric: Iterable[Mapping[str, Any]] | None,
+    questions: Iterable[Mapping[str, Any]],
+    available_question_indexes: Iterable[int],
+) -> list[str]:
+    """Компетенции рубрики, все вопросы которых остались без транскрипта.
+
+    Компетенция без привязанных вопросов оценивается по всему интервью и в
+    список не попадает."""
+    available = set(available_question_indexes)
+    linked: dict[str, list[int]] = {}
+    for position, question in enumerate(questions):
+        index = int(question.get("index", position))
+        for competency_id in question.get("competency_ids") or ():
+            linked.setdefault(str(competency_id), []).append(index)
+    result: list[str] = []
+    for item in rubric or ():
+        rubric_id = str(item.get("id") or "").strip()
+        indexes = linked.get(rubric_id)
+        if rubric_id and indexes and not any(index in available for index in indexes):
+            result.append(rubric_id)
+    return result
+
+
 def score_output(
     output: EvaluationOutput,
     rubric: Iterable[Mapping[str, Any]] | None,
     *,
     thresholds: Thresholds | None = None,
+    unassessable: Iterable[str] = (),
 ) -> ScoringResult:
     """Полный расчёт по заключению модели: балл и рекомендация."""
     rubric_list = list(rubric or ())
-    score = fit_score(output.competency_scores, rubric_list, output.question_assessments)
+    skipped = list(unassessable)
+    score = fit_score(
+        output.competency_scores,
+        rubric_list,
+        output.question_assessments,
+        unassessable=skipped,
+    )
     return recommend(
         score,
         competency_scores=output.competency_scores,
         rubric=rubric_list,
         confidence=output.confidence,
         thresholds=thresholds,
+        unassessable=skipped,
     )

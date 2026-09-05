@@ -703,9 +703,11 @@ def test_dataset_is_well_formed() -> None:
     cases = module.load_dataset(EVALS_DIR / "dataset")
     base = [case for case in cases if case.injection is None]
     injected = [case for case in cases if case.injection is not None]
-    assert len(base) == 6 and len(injected) == 3
+    # 20+ базовых кейсов, включая пограничные; инъекции — поверх базовых.
+    assert len(base) >= 20 and len(injected) >= 3
     assert {case.expert_label for case in base} == set(RECOMMENDATIONS)
     base_ids = {case.id for case in base}
+    lengths: list[int] = []
     for case in cases:
         assert 3 <= len(case.vacancy["rubric"]) <= 4
         assert all(item["levels"] for item in case.vacancy["rubric"])
@@ -714,30 +716,120 @@ def test_dataset_is_well_formed() -> None:
         assert case.expert_rationale
         for transcript in case.transcripts:
             if transcript["status"] == "done":
-                assert 80 <= len(transcript["text"].split()) <= 200, (
-                    case.id,
-                    transcript["question_index"],
-                )
+                words = len(transcript["text"].split())
+                # Короткие и оборванные ответы — намеренные кейсы, но пустых быть не должно.
+                assert 10 <= words <= 220, (case.id, transcript["question_index"], words)
+                lengths.append(words)
+            else:
+                assert transcript["text"] is None
         if case.injection is not None:
             assert case.base_case in base_ids
             assert any(case.injection["text"] in (t["text"] or "") for t in case.transcripts)
             twin = next(item for item in base if item.id == case.base_case)
             assert case.expert_label == twin.expert_label
+    # Основная масса транскриптов — обычной длины, как их отдаёт STT.
+    typical = sum(1 for words in lengths if 80 <= words <= 200)
+    assert typical / len(lengths) >= 0.7
 
 
 async def test_eval_agreement_runs_on_dataset_with_fake_provider(tmp_path: Path) -> None:
     module = _load_eval_module()
     cases = module.load_dataset(EVALS_DIR / "dataset")
-    report = await module.run_dataset(cases)
+    base = [case for case in cases if case.injection is None]
+    injected = [case for case in cases if case.injection is not None]
+    dump_dir = tmp_path / "dump"
+    report = await module.run_dataset(cases, dump_dir=dump_dir)
     assert report.provider == "fake" and report.prompt_version == PROMPT_VERSION
-    assert report.total == 6 and 0.0 <= report.agreement <= 1.0
+    assert report.total == len(base) and 0.0 <= report.agreement <= 1.0
     assert all(item.error is None for item in report.results)
     assert set(report.confusion()) == set(RECOMMENDATIONS)
-    assert len(report.injections) == 3
+    assert len(report.injections) == len(injected)
     assert all(item.base_predicted is not None for item in report.injections)
+    # Баллы по компетенциям и полные заключения — для разбора расхождений.
+    assert all(item.scores for item in report.results)
+    assert {path.stem for path in dump_dir.glob("*.json")} == {case.id for case in cases}
+    dumped = json.loads((dump_dir / f"{base[0].id}.json").read_text(encoding="utf-8"))
+    assert dumped["output"]["competency_scores"] and dumped["recommendation"]
     text = module.format_report(report)
     assert "Согласие с экспертом" in text and "Устойчивость к инъекциям" in text
     assert "провайдер fake" in text
     out = tmp_path / "report.json"
     out.write_text(json.dumps(report.to_dict(), ensure_ascii=False), encoding="utf-8")
-    assert json.loads(out.read_text(encoding="utf-8"))["total"] == 6
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["total"] == len(base)
+    assert all(item["scores"] for item in saved["results"])
+
+
+# ------------------------------------------------- компетенции без данных
+
+
+def test_unassessable_competencies_are_excluded_and_cap_recommendation() -> None:
+    # Транскрипта по SQL нет: компетенция не входит в среднее и не даёт «подходит».
+    scores = [_cs("python", 4), _cs("sql", 1), _cs("soft", 4)]
+    assert scoring.fit_score(scores, RUBRIC) == 60.0
+    excluded = scoring.fit_score(scores, RUBRIC, unassessable=["sql"])
+    assert excluded == 100.0
+    result = scoring.recommend(
+        excluded, competency_scores=scores, rubric=RUBRIC, unassessable=["sql"]
+    )
+    assert result.recommendation == "needs_check"
+    assert any("нет данных по компетенциям: sql" in reason for reason in result.reasons)
+    # Единица по недоступной критичной компетенции — не провал, а отсутствие данных.
+    assert not any("критичной" in reason for reason in result.reasons)
+    # Слабые ответы по оценённым компетенциям остаются «не подходит».
+    weak = [_cs("python", 1), _cs("sql", 1), _cs("soft", 2)]
+    weak_score = scoring.fit_score(weak, RUBRIC, unassessable=["sql"])
+    assert (
+        scoring.recommend(
+            weak_score, competency_scores=weak, rubric=RUBRIC, unassessable=["sql"]
+        ).recommendation
+        == "needs_check"
+    )
+    # Все компетенции без данных — балла нет, рекомендация «нужна проверка».
+    assert scoring.fit_score(scores, RUBRIC, unassessable=["python", "sql", "soft"]) is None
+    none = scoring.recommend(None, unassessable=["python", "sql", "soft"])
+    assert none.recommendation == "needs_check"
+    assert none.reasons[0].startswith("нет данных по компетенциям")
+
+
+def test_unassessable_competencies_follow_missing_transcripts() -> None:
+    questions = [
+        {"index": 0, "competency_ids": ["python"]},
+        {"index": 1, "competency_ids": ["sql", "soft"]},
+        {"index": 2, "competency_ids": ["soft"]},
+    ]
+    # Есть только ответ на третий вопрос: python и sql без данных, soft оценим.
+    assert scoring.unassessable_competencies(RUBRIC, questions, {2}) == ["python", "sql"]
+    assert scoring.unassessable_competencies(RUBRIC, questions, {0, 1, 2}) == []
+    # Компетенция без привязанных вопросов оценивается по всему интервью.
+    rubric = [*RUBRIC, {"id": "extra", "name": "Прочее", "weight": 2, "levels": {}}]
+    assert scoring.unassessable_competencies(rubric, questions, set()) == ["python", "sql", "soft"]
+
+
+async def test_evaluate_payload_marks_competencies_without_transcripts() -> None:
+    llm = RecordingLLM()
+    vacancy = {"title": "Python", "rubric": RUBRIC}
+    questions = [
+        {
+            "index": 0,
+            "text": "Что такое GIL?",
+            "competency_ids": ["python"],
+            "expected_points": ["глобальная блокировка"],
+        },
+        {
+            "index": 1,
+            "text": "Как найти медленный запрос?",
+            "competency_ids": ["sql", "soft"],
+            "expected_points": ["EXPLAIN"],
+        },
+    ]
+    transcripts = [
+        {"question_index": 0, "answer_id": "a-1", "status": "done", "text": TRANSCRIPTS[0]},
+        {"question_index": 1, "answer_id": "a-2", "status": "failed", "text": None},
+    ]
+    result = await evaluate_payload(vacancy, questions, transcripts, llm=llm)
+    # Фейк ставит 2 по каждой компетенции: балл тот же, что и с полными данными,
+    # но без транскрипта по sql и soft рекомендация — «нужна проверка».
+    assert result.fit_score == 33.3
+    assert result.recommendation == "needs_check"
+    assert any("нет данных по компетенциям: sql, soft" in r for r in result.scoring.reasons)

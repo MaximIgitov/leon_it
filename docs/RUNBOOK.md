@@ -92,6 +92,7 @@ Breaker на провайдера: после серии ошибок роль �
 | Ответ висит в «обрабатывается» | подождать до `PIPELINE_STALE_PROCESSING_S` (30 мин) — тик вернёт его в очередь; либо перезапустить воркер: `docker compose restart worker` |
 | Оценка не появляется | `docker compose logs worker | grep evaluation` — ошибка провайдера пишется в заключение (`status=failed`); кнопка «Переобработать» в карточке кандидата |
 | Нет транскрипта, ошибка ffmpeg | текст ошибки в карточке ответа (пути сервера скрыты); проверить `docker compose exec worker ffmpeg -version` |
+| Оценка падает с `payment required (HTTP 402)` | баланс агрегатора ниже прогноза цены запроса — пополнить баланс. Прогноз считается по `max_tokens`; лимит по ролям задан в `leonit.ai.config` (оценщик 8192, ассистент 4096, интервьюер 1024) и переопределяется `MODEL_<ROLE>_MAX_TOKENS` |
 | Медиа не удаляется по сроку | `docker compose exec worker python -m leonit.pipeline.purge --dry-run` покажет, что попадёт под чистку |
 
 ## Медиа и срок хранения

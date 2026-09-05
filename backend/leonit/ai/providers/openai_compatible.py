@@ -404,8 +404,9 @@ class OpenAICompatibleLLM(LLMProvider):
             body["response_format"] = self._effective_format(response_format)
         if temperature is not None:
             body["temperature"] = temperature
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
+        effective_max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
+        if effective_max_tokens is not None:
+            body["max_tokens"] = effective_max_tokens
         return body
 
     def _effective_format(self, response_format: dict[str, Any]) -> dict[str, Any]:

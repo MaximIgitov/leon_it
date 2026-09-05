@@ -55,6 +55,29 @@ export default defineConfig({
         ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
       },
     },
+    // Firefox — второй движок для проверки совместимости; включается явно
+    // (E2E_FIREFOX=1 после `npx playwright install firefox`), чтобы CI без
+    // скачанного Firefox не падал. Камера и микрофон — фейковые через prefs,
+    // разрешения в Firefox через контекст не выдаются, поэтому их список пуст.
+    ...(process.env.E2E_FIREFOX
+      ? [
+          {
+            name: "firefox",
+            use: {
+              ...devices["Desktop Firefox"],
+              viewport: { width: 1280, height: 800 },
+              permissions: [],
+              launchOptions: {
+                firefoxUserPrefs: {
+                  "media.navigator.streams.fake": true,
+                  "media.navigator.permission.disabled": true,
+                  "media.autoplay.default": 0,
+                },
+              },
+            },
+          },
+        ]
+      : []),
   ],
   metadata: { apiUrl: API_URL },
 });

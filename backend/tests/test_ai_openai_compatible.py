@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from collections.abc import AsyncIterator
 
@@ -9,7 +10,7 @@ import pytest
 import respx
 
 from leonit.ai.circuit_breaker import CircuitBreaker
-from leonit.ai.config import RoleConfig
+from leonit.ai.config import RoleConfig, get_role_config
 from leonit.ai.providers.base import (
     ProviderConfigurationError,
     ProviderResponseError,
@@ -24,6 +25,7 @@ from leonit.ai.providers.openai_compatible import (
     OpenAICompatibleTTS,
     RetryPolicy,
 )
+from leonit.core.config import Settings
 
 BASE_URL = "https://models.test/v1"
 
@@ -644,3 +646,45 @@ async def test_tts_returns_bytes_with_content_type(http: httpx.AsyncClient) -> N
         "voice": "nova",
         "response_format": "mp3",
     }
+
+
+# ------------------------------------------------------- лимит генерации
+
+
+async def test_chat_applies_role_max_tokens_by_default(http: httpx.AsyncClient) -> None:
+    # Без лимита агрегатор оценивает цену запроса по максимуму модели и при
+    # низком балансе отвечает 402 до генерации; явный аргумент вызова важнее.
+    config = dataclasses.replace(_config(), max_tokens=777)
+    llm = OpenAICompatibleLLM(config, client=_client(http))
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/chat/completions").mock(
+            return_value=httpx.Response(200, json=_chat_payload())
+        )
+        await llm.chat([{"role": "user", "content": "hi"}])
+        await llm.chat([{"role": "user", "content": "hi"}], max_tokens=5)
+    first, second = (json.loads(call.request.content) for call in route.calls)
+    assert first["max_tokens"] == 777 and second["max_tokens"] == 5
+    # Конфиг без лимита ничего не добавляет в тело запроса.
+    bare = OpenAICompatibleLLM(_config(), client=_client(http))
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.post("/chat/completions").mock(
+            return_value=httpx.Response(200, json=_chat_payload())
+        )
+        await bare.chat([{"role": "user", "content": "hi"}])
+    assert "max_tokens" not in json.loads(route.calls.last.request.content)
+
+
+def test_role_config_resolves_max_tokens_defaults() -> None:
+    settings = Settings(_env_file=None, MODEL_DEFAULT_API_KEY="k")
+    assert get_role_config("evaluator", settings).max_tokens == 8192
+    assert get_role_config("assistant", settings).max_tokens == 4096
+    assert get_role_config("interviewer", settings).max_tokens == 1024
+    assert get_role_config("tts", settings).max_tokens is None
+    custom = Settings(
+        _env_file=None,
+        MODEL_DEFAULT_API_KEY="k",
+        MODEL_DEFAULT_MAX_TOKENS=300,
+        MODEL_EVALUATOR_MAX_TOKENS=2000,
+    )
+    assert get_role_config("evaluator", custom).max_tokens == 2000
+    assert get_role_config("assistant", custom).max_tokens == 300
