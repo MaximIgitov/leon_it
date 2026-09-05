@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, File, Query, UploadFile, status
+from pydantic import BaseModel
 
 from leonit.accounts.deps import CurrentActor
 from leonit.core.deps import DbSession
+from leonit.knowledge.parsing import extract_text
 from leonit.vacancies.models import VacancyStatus
+from leonit.vacancies.quick import VacancyQuickCreate, create_vacancy_from_text
 from leonit.vacancies.schemas import (
     QuestionsReplace,
     VacancyCreate,
@@ -35,6 +38,33 @@ async def create_vacancy(
     payload: VacancyCreate, actor: CurrentActor, session: DbSession
 ) -> VacancyDetailOut:
     return vacancy_detail_out(await VacancyService(session).create(actor, payload))
+
+
+class VacancyQuickOut(BaseModel):
+    vacancy: VacancyDetailOut
+    notes: str
+    source_name: str | None = None
+
+
+@router.post("/quick", response_model=VacancyQuickOut, status_code=status.HTTP_201_CREATED)
+async def create_vacancy_from_text_endpoint(
+    payload: VacancyQuickCreate, actor: CurrentActor, session: DbSession
+) -> VacancyQuickOut:
+    """Черновик вакансии из вставленного текста: уровень, навыки, рубрика и вопросы."""
+    vacancy, draft = await create_vacancy_from_text(session, actor, payload.text)
+    return VacancyQuickOut(vacancy=vacancy_detail_out(vacancy), notes=draft.notes)
+
+
+@router.post("/quick/upload", response_model=VacancyQuickOut, status_code=status.HTTP_201_CREATED)
+async def create_vacancy_from_file(
+    actor: CurrentActor, session: DbSession, file: Annotated[UploadFile, File()]
+) -> VacancyQuickOut:
+    """То же из файла: pdf, docx, txt, md, html — текст извлекается как в базе знаний."""
+    parsed = extract_text(file.filename, file.content_type, await file.read())
+    vacancy, draft = await create_vacancy_from_text(session, actor, parsed.text)
+    return VacancyQuickOut(
+        vacancy=vacancy_detail_out(vacancy), notes=draft.notes, source_name=file.filename
+    )
 
 
 @router.get("/{vacancy_id}", response_model=VacancyDetailOut)

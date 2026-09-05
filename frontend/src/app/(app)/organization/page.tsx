@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Link2, Loader2, Plus, ShieldOff, UserCheck } from "lucide-react";
+import { BookOpen, Check, Copy, Link2, Loader2, Plus, ShieldOff, UserCheck } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
@@ -30,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { accountsApi, type Invite, type Member, type Role } from "@/lib/api/accounts";
 import { emailsApi, type EmailMessage } from "@/lib/api/candidates";
+import { knowledgeApi } from "@/lib/api/knowledge";
 import { ApiError } from "@/lib/api/client";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, roleLabel } from "@/lib/roles";
 
@@ -558,6 +560,38 @@ function EmailsCard() {
   );
 }
 
+function KnowledgeCard() {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    knowledgeApi
+      .list()
+      .then((items) => setCount(items.length))
+      .catch(() => setCount(null));
+  }, []);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>База знаний</CardTitle>
+        <CardDescription>
+          Документы о компании, по которым ассистент отвечает на вопросы и собирает черновики
+          вакансий: продукты, клиенты, стек, ценности, этапы найма, условия.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4">
+        <p className="text-sm text-muted-foreground">
+          {count === null ? "Документов: —" : count === 0 ? "База пуста" : `Документов: ${count}`}
+        </p>
+        <Button asChild variant="secondary">
+          <Link href="/organization/knowledge">
+            <BookOpen className="mr-2 h-4 w-4" />
+            Открыть базу знаний
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OrganizationPage() {
   const { can } = useAuth();
   if (!can("org.members")) {
@@ -578,6 +612,7 @@ export default function OrganizationPage() {
       />
       <div className="space-y-6">
         <OrganizationCard />
+        <KnowledgeCard />
         <MembersCard />
         <InvitesCard />
         <EmailsCard />

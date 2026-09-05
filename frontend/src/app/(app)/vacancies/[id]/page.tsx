@@ -38,6 +38,19 @@ export default function VacancyPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    // Черновик собран из текста: напомнить, что рубрику и вопросы стоит проверить.
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("from") !== "text") return;
+    toast({
+      title: "Черновик собран из текста",
+      description:
+        "Проверьте описание, рубрику и вопросы: модель могла что-то упустить или додумать.",
+    });
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [toast]);
+
   const notifyError = useCallback(
     (caught: unknown, fallback: string) =>
       toast({

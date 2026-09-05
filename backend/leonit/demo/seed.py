@@ -63,6 +63,9 @@ from leonit.evaluation.service import (
 from leonit.interviews.models import Answer, AnswerStatus
 from leonit.interviews.service import INTERVIEW_PROCESS_JOB, build_question_snapshot
 from leonit.jobs import service as jobs
+from leonit.knowledge.models import KnowledgeDocument
+from leonit.knowledge.schemas import KnowledgeTextCreate
+from leonit.knowledge.service import KnowledgeService
 from leonit.models import load_all_models
 from leonit.reports.schemas import DecisionIn, NoteIn
 from leonit.reports.service import ReportService
@@ -79,6 +82,20 @@ from leonit.vacancies.service import VacancyService, settings_of
 log = get_logger(__name__)
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "evals" / "dataset"
+
+KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
+# Теги по номеру файла: подсказывают поиску тему документа.
+KNOWLEDGE_TAGS: dict[str, list[str]] = {
+    "01": ["контакты", "офисы", "руководство"],
+    "02": ["продукты", "решения"],
+    "03": ["клиенты", "кейсы"],
+    "04": ["история"],
+    "05": ["ценности", "культура", "hr"],
+    "06": ["стек", "технологии"],
+    "07": ["найм", "стажировка", "hr"],
+    "08": ["награды", "рейтинги"],
+    "09": ["услуги", "консалтинг"],
+}
 DEFAULT_EMAIL = "demo@leonit.ru"
 ORGANIZATION_NAME = "Napoleon IT · демо"
 # Имена сотрудников подставляются в аккаунты; e-mail задаются параметрами.
@@ -129,6 +146,7 @@ class SeedReport:
     evaluated: int = 0
     queued_for_evaluation: int = 0
     created: bool = False
+    knowledge_documents: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -142,6 +160,7 @@ class SeedReport:
             "evaluated": self.evaluated,
             "queued_for_evaluation": self.queued_for_evaluation,
             "created": self.created,
+            "knowledge_documents": self.knowledge_documents,
         }
 
 
@@ -669,7 +688,37 @@ class DemoSeeder:
             elif self.evaluate == "real":
                 report.queued_for_evaluation += 1
         report.interviews += await self.seed_funnel_extras(actor, first)
+        report.knowledge_documents = await self.ensure_knowledge(actor)
         return report
+
+    async def ensure_knowledge(self, actor: Actor) -> int:
+        """База знаний компании из ``demo/knowledge/*.md``: документ на файл, по названию.
+
+        Заголовок первого уровня становится названием документа; повторный запуск
+        ничего не дублирует и не перезаписывает правки, сделанные в кабинете.
+        """
+        added = 0
+        existing = set(
+            await self.session.scalars(
+                select(KnowledgeDocument.title).where(
+                    KnowledgeDocument.organization_id == actor.organization_id
+                )
+            )
+        )
+        service = KnowledgeService(self.session)
+        for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
+            text = path.read_text(encoding="utf-8").strip()
+            first_line = text.splitlines()[0] if text else ""
+            title = first_line.lstrip("# ").strip() or path.stem
+            if title in existing:
+                continue
+            tags = KNOWLEDGE_TAGS.get(path.stem.split("-", 1)[0], [])
+            await service.create_text(
+                actor, KnowledgeTextCreate(title=title, text=text, tags=["о компании", *tags])
+            )
+            existing.add(title)
+            added += 1
+        return added
 
 
 async def seed(

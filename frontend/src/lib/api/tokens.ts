@@ -7,7 +7,9 @@ export type ApiScope =
   | "candidates:write"
   | "interviews:read"
   | "reports:read"
-  | "media:read";
+  | "media:read"
+  | "knowledge:read"
+  | "knowledge:write";
 
 export type ApiTokenStatus = "active" | "expired" | "revoked";
 

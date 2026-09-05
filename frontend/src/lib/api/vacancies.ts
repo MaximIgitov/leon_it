@@ -74,6 +74,8 @@ export type Vacancy = {
   archived_at: string | null;
 };
 
+export type VacancyQuickResult = { vacancy: Vacancy; notes: string; source_name: string | null };
+
 export type VacancyUpdate = Partial<{
   title: string;
   description: string;
@@ -110,6 +112,13 @@ export const vacanciesApi = {
   get: (id: string) => apiFetch<Vacancy>(`/vacancies/${id}`),
   create: (body: { title: string; description?: string; requirements?: string }) =>
     apiFetch<Vacancy>("/vacancies", { method: "POST", body }),
+  quickFromText: (text: string) =>
+    apiFetch<VacancyQuickResult>("/vacancies/quick", { method: "POST", body: { text } }),
+  quickFromFile: (file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return apiFetch<VacancyQuickResult>("/vacancies/quick/upload", { method: "POST", body: form });
+  },
   update: (id: string, body: VacancyUpdate) =>
     apiFetch<Vacancy>(`/vacancies/${id}`, { method: "PATCH", body }),
   replaceQuestions: (id: string, questions: QuestionDraft[]) =>
