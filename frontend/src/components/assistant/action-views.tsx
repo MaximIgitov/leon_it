@@ -51,6 +51,24 @@ export function statusLabel(value: unknown): string {
   return typeof value === "string" ? (STATUS_LABELS[value] ?? value) : "—";
 }
 
+const PROPOSAL_CAPTIONS: Record<string, string> = {
+  invite: "Кандидату уйдёт письмо с приглашением",
+  decide: "Решение сохранится в карточке кандидата",
+  publish: "Вакансия откроется для приглашений",
+  archive: "Вакансия уйдёт в архив",
+  update_rubric: "Заменит текущую рубрику вакансии",
+  replace_questions: "Заменит текущие вопросы вакансии",
+};
+
+/** Подпись под кнопкой «Подтвердить»: что именно произойдёт, а не абстрактное «необратимое». */
+export function proposalCaption(proposal: Proposal): string {
+  const effect =
+    proposal.action === "invite" && proposal.params.send_email === false
+      ? "Приглашение появится в списке без письма кандидату"
+      : (PROPOSAL_CAPTIONS[proposal.action] ?? "Изменение применится");
+  return `${effect} — только после вашего подтверждения`;
+}
+
 function clip(text: unknown, limit: number): string {
   const value = typeof text === "string" ? text : "";
   return value.length > limit ? `${value.slice(0, limit).trimEnd()}…` : value;

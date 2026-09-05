@@ -1,7 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ActionResult, ProposalPreview, decisionLabel, recommendationLabel } from "@/components/assistant/action-views";
+import {
+  ActionResult,
+  ProposalPreview,
+  decisionLabel,
+  proposalCaption,
+  recommendationLabel,
+} from "@/components/assistant/action-views";
 import type { AssistantAction } from "@/lib/api/assistant";
 
 function action(overrides: Partial<AssistantAction>): AssistantAction {
@@ -95,6 +101,14 @@ describe("предложения ассистента", () => {
     expect(decide).toContain("слабая база");
     expect(decisionLabel("advance")).toBe("Дальше");
     expect(recommendationLabel("needs_check")).toBe("нужна проверка");
+  });
+
+  it("подпись под кнопкой говорит, что именно произойдёт после подтверждения", () => {
+    expect(proposalCaption({ action: "invite", summary: "", params: { send_email: true } })).toContain("письмо");
+    expect(proposalCaption({ action: "invite", summary: "", params: { send_email: false } })).toContain("без письма");
+    expect(proposalCaption({ action: "update_rubric", summary: "", params: {} })).toContain("рубрику");
+    expect(proposalCaption({ action: "replace_questions", summary: "", params: {} })).toContain("вопросы");
+    expect(proposalCaption({ action: "something_new", summary: "", params: {} })).toContain("после вашего подтверждения");
   });
 });
 
