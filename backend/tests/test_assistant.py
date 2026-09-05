@@ -243,6 +243,46 @@ async def test_generate_questions_only_proposes(client: AsyncClient) -> None:
     assert again["question_count"] == saved["question_count"]
 
 
+async def test_confirmed_proposal_is_remembered_in_the_message(client: AsyncClient) -> None:
+    """Отметка о подтверждении хранится в сообщении: после перезагрузки кнопка не вернётся."""
+    _, owner = await register(client)
+    vacancy = (
+        await client.post("/api/vacancies", json=RUBRIC_VACANCY, headers=bearer(owner))
+    ).json()
+    thread = await _thread(client, owner)
+    # Архив черновика — предложение без предусловий (публикация требует вопросов).
+    marker = f'[[call:archive_vacancy {{"vacancy_id": "{vacancy["id"]}"}}]]'
+    result = await _send(client, owner, thread["id"], marker)
+    message = result["assistant_message"]
+    assert message["actions"][0]["kind"] == "proposed", message["actions"][0]
+    assert message["actions"][0]["confirmed_at"] is None
+    url = f"/api/assistant/threads/{thread['id']}/messages/{message['id']}/actions/0/confirm"
+
+    confirmed = await client.post(url, headers=bearer(owner))
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["actions"][0]["confirmed_at"]
+    # Повторное подтверждение идемпотентно, отметка не меняется.
+    stamp = confirmed.json()["actions"][0]["confirmed_at"]
+    again = await client.post(url, headers=bearer(owner))
+    assert again.json()["actions"][0]["confirmed_at"] == stamp
+    history = (
+        await client.get(f"/api/assistant/threads/{thread['id']}/messages", headers=bearer(owner))
+    ).json()
+    assert history[-1]["actions"][0]["confirmed_at"] == stamp
+
+    # Подтвердить можно только предложение, и только в своём чате.
+    plain = await _send(client, owner, thread["id"], "[[call:list_vacancies {}]]")
+    done_url = (
+        f"/api/assistant/threads/{thread['id']}/messages/"
+        f"{plain['assistant_message']['id']}/actions/0/confirm"
+    )
+    assert (await client.post(done_url, headers=bearer(owner))).status_code == 422
+    missing = f"/api/assistant/threads/{thread['id']}/messages/{message['id']}/actions/5/confirm"
+    assert (await client.post(missing, headers=bearer(owner))).status_code == 404
+    _, stranger = await register(client)
+    assert (await client.post(url, headers=bearer(stranger))).status_code == 404
+
+
 async def test_invite_candidate_is_only_a_proposal(client: AsyncClient) -> None:
     _, owner = await register(client)
     vacancy = await _published_vacancy(client, owner)
@@ -600,8 +640,14 @@ async def test_stream_emits_tokens_actions_and_done(client: AsyncClient) -> None
     types = [name for name, _ in with_tool]
     assert "action" in types and types[-1] == "done"
     assert types.index("action") < types.index("token")
+    # Клиент узнаёт о начале работы инструмента до его результата: генерация
+    # рубрики идёт десятки секунд, и пользователь видит, чем занят ассистент.
+    assert types.index("tool_start") < types.index("action")
+    started = next(data for name, data in with_tool if name == "tool_start")
+    assert started == {"tool": "list_vacancies", "params": {}}
     action = next(data for name, data in with_tool if name == "action")
     assert action["tool"] == "list_vacancies" and action["kind"] == "done"
+    assert action["confirmed_at"] is None
 
     history = (
         await client.get(f"/api/assistant/threads/{thread['id']}/messages", headers=bearer(owner))

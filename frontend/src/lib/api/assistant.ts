@@ -31,6 +31,8 @@ export type AssistantAction = {
   summary: string;
   result: unknown;
   proposal: Proposal | null;
+  /** Когда предложение подтвердили кнопкой — хранится в сообщении. */
+  confirmed_at?: string | null;
 };
 
 export type AssistantThread = {
@@ -61,6 +63,8 @@ export type Placeholders = { role: string; items: string[] };
 export type StreamEvent =
   | { type: "user"; data: { message: AssistantMessage } }
   | { type: "token"; data: { text: string } }
+  /* Инструмент начал работу: генерация идёт десятки секунд, показываем чем занят. */
+  | { type: "tool_start"; data: { tool: string; params: Record<string, unknown> } }
   | { type: "action"; data: AssistantAction }
   | { type: "reset"; data: Record<string, never> }
   | { type: "done"; data: { message: AssistantMessage; thread: { id: string; title: string } } }
@@ -89,7 +93,24 @@ export const TOOL_LABELS: Record<string, string> = {
   decide_candidate: "Решение по кандидату",
   list_members: "Участники организации",
   check_models: "Проверка моделей",
+  search_knowledge: "Поиск по базе знаний",
 };
+
+/** Что ассистент делает прямо сейчас — для индикатора хода. */
+export function toolProgressLabel(tool: string): string {
+  const labels: Record<string, string> = {
+    generate_rubric: "Составляю рубрику компетенций…",
+    generate_questions: "Придумываю вопросы…",
+    review_questions: "Вычитываю вопросы…",
+    create_vacancy: "Создаю черновик вакансии…",
+    vacancy_summary: "Собираю срез по вакансии…",
+    ranking: "Смотрю рейтинг…",
+    get_interview: "Читаю отчёт по интервью…",
+    search_knowledge: "Ищу в базе знаний…",
+    check_models: "Проверяю модели…",
+  };
+  return labels[tool] ?? `${toolLabel(tool)}…`;
+}
 
 export function toolLabel(tool: string): string {
   return TOOL_LABELS[tool] ?? tool;
@@ -178,5 +199,10 @@ export const assistantApi = {
   messages: (id: string) => apiFetch<AssistantMessage[]>(`/assistant/threads/${id}/messages`),
   send: (id: string, body: { content: string; page_path?: string | null }) =>
     apiFetch<SendResult>(`/assistant/threads/${id}/messages`, { method: "POST", body }),
+  confirmAction: (threadId: string, messageId: string, index: number) =>
+    apiFetch<AssistantMessage>(
+      `/assistant/threads/${threadId}/messages/${messageId}/actions/${index}/confirm`,
+      { method: "POST" },
+    ),
   stream: streamAssistantMessage,
 };
