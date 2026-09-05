@@ -26,7 +26,7 @@ async def _login(client: AsyncClient, email: str) -> str:
 async def test_seed_builds_demo_organization_and_is_idempotent(client: AsyncClient) -> None:
     email = f"demo-{uuid.uuid4().hex[:6]}@example.com"
     report = await seed(get_session_maker(), password=PASSWORD, email=email)
-    assert report.created and len(report.vacancies) == 2
+    assert report.created and len(report.vacancies) == 3
     assert report.interviews == len(PERSONAS) + 3 and report.evaluated == len(PERSONAS)
 
     again = await seed(get_session_maker(), password=PASSWORD, email=email)
@@ -43,7 +43,7 @@ async def test_seed_builds_demo_organization_and_is_idempotent(client: AsyncClie
             .select_from(Vacancy)
             .where(Vacancy.title.in_(report.vacancies), Vacancy.status == VacancyStatus.published)
         )
-        assert published == 2
+        assert published == 3
 
     # Ранжирование по первой вакансии показывает баллы и рекомендации из заключений.
     first = next(item for item in vacancies.json() if item["title"] == report.vacancies[0])
@@ -127,7 +127,7 @@ async def test_seed_accepts_custom_organization_and_member_emails(client: AsyncC
     owner_token = await _login(client, owner)
     recruiter_token = await _login(client, recruiter)
     manager_token = await _login(client, manager)
-    for token, expected in ((owner_token, 2), (recruiter_token, 2), (manager_token, 1)):
+    for token, expected in ((owner_token, 3), (recruiter_token, 3), (manager_token, 1)):
         listed = await client.get("/api/vacancies", headers={"Authorization": f"Bearer {token}"})
         assert listed.status_code == 200, listed.text
         assert len(listed.json()) == expected

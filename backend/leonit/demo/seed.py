@@ -116,8 +116,10 @@ OWNER_NAME = "Владелец"
 RECRUITER_NAME = "Рекрутер"
 MANAGER_NAME = "Нанимающий менеджер"
 DEMO_MODEL = "demo-dataset"
-# Кейсы с инъекциями (07–09) в демо не нужны: они для eval-контура.
-CASE_FILES = ("01", "02", "03", "04", "05", "06")
+# Кейсы с инъекциями (07–09) и пограничные (10–26) в демо не нужны: они для
+# eval-контура. 29–30 — примеры заключений из материалов Napoleon IT по их
+# вакансии «Middle+ Python Developer».
+CASE_FILES = ("01", "02", "03", "04", "05", "06", "29", "30")
 
 # Персоны кандидатов по кейсам датасета: имя, e-mail, телефон.
 PERSONAS: dict[str, tuple[str, str, str]] = {
@@ -127,6 +129,8 @@ PERSONAS: dict[str, tuple[str, str, str]] = {
     "04": ("Екатерина Волкова", "ekaterina.volkova@example.com", "+7 985 321-00-11"),
     "05": ("Игорь Павлов", "igor.pavlov@example.com", "+7 977 444-55-66"),
     "06": ("Анна Лебедева", "anna.lebedeva@example.com", "+7 999 808-07-06"),
+    "29": ("Роман Беляев", "roman.belyaev@example.com", "+7 912 300-40-50"),
+    "30": ("Тимур Гареев", "timur.gareev@example.com", "+7 917 600-70-80"),
 }
 # Кандидаты на ранних шагах воронки: (имя, e-mail, статус).
 FUNNEL_EXTRAS: tuple[tuple[str, str, InterviewStatus], ...] = (
@@ -565,7 +569,8 @@ class DemoSeeder:
         )
         if interview is None:
             return None
-        invited_at = self.now - timedelta(days=19 - 3 * offset, hours=4)
+        # Кейсов больше шести: шаг меньше, чтобы приглашения не уехали в будущее.
+        invited_at = self.now - timedelta(days=max(2, 19 - 2 * offset), hours=4)
         self._stamp(interview, invited_at, vacancy)
         transition(interview, InterviewStatus.opened)
         transition(interview, InterviewStatus.consented)
