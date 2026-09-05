@@ -12,8 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   FEEDBACK_MODE_LABELS,
+  INTERVIEW_MODE_HINTS,
+  INTERVIEW_MODE_LABELS,
   vacanciesApi,
   type FeedbackMode,
+  type InterviewMode,
   type InterviewSettings,
 } from "@/lib/api/vacancies";
 
@@ -126,10 +129,29 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
           />
         </div>
 
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Формат интервью</Label>
+            <Select value={settings.interview_mode} disabled={!editable} onValueChange={(v) => patch({ interview_mode: v as InterviewMode })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(INTERVIEW_MODE_LABELS) as InterviewMode[]).map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {INTERVIEW_MODE_LABELS[mode]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{INTERVIEW_MODE_HINTS[settings.interview_mode]}</p>
+          </div>
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-3">
-          <NumberField id="prep" label="Подготовка к ответу, с" value={settings.prep_seconds} min={0} max={600} disabled={!editable} onChange={(v) => patch({ prep_seconds: v })} />
+          <NumberField id="prep" label="Подготовка к ответу, с" hint={settings.interview_mode === "live" ? "В живом диалоге не используется: запись начинается, как только прозвучал вопрос" : undefined} value={settings.prep_seconds} min={0} max={600} disabled={!editable} onChange={(v) => patch({ prep_seconds: v })} />
           <NumberField id="answer" label="Ответ не дольше, с" value={settings.max_answer_seconds} min={30} max={900} disabled={!editable} onChange={(v) => patch({ max_answer_seconds: v })} />
-          <NumberField id="retakes" label="Перезаписей ответа" hint="0 — одна попытка" value={settings.retakes_allowed} min={0} max={5} disabled={!editable} onChange={(v) => patch({ retakes_allowed: v })} />
+          <NumberField id="retakes" label="Перезаписей ответа" hint={settings.interview_mode === "live" ? "В живом диалоге перезаписи нет" : "0 — одна попытка"} value={settings.retakes_allowed} min={0} max={5} disabled={!editable} onChange={(v) => patch({ retakes_allowed: v })} />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">

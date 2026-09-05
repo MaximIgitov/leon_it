@@ -87,6 +87,9 @@ class Vacancy(TimestampMixin, Base):
     voice: Mapped[str] = mapped_column(String(64), default="nova", nullable=False)
     # ИИ-аватар интервьюера в комнате: выключен по умолчанию, провайдер платный.
     avatar_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Формат интервью: live — живой диалог (пауза завершает ответ, вопросы звучат
+    # сами), push_to_talk — кнопки «Начать ответ» / «Завершить ответ» и перезапись.
+    interview_mode: Mapped[str] = mapped_column(String(16), default="live", nullable=False)
     invitation_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
     candidate_feedback_mode: Mapped[CandidateFeedbackMode] = mapped_column(
         Enum(CandidateFeedbackMode, name="candidate_feedback_mode", native_enum=False, length=24),

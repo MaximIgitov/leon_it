@@ -150,6 +150,8 @@ class InvitationPublicOut(BaseModel):
     max_answer_seconds: int
     retakes_allowed: int
     practice_question_enabled: bool
+    # live — живой диалог, push_to_talk — кнопки записи; кандидат видит правила до старта.
+    interview_mode: str = "live"
     expires_at: datetime
     needs_consent: bool
     candidate_full_name: str

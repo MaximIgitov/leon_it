@@ -30,6 +30,9 @@ class RubricCompetency(BaseModel):
         return {key: text.strip() for key, text in value.items()}
 
 
+InterviewModeLiteral = Literal["live", "push_to_talk"]
+
+
 class InterviewSettings(BaseModel):
     intro_text: str = Field(default="", max_length=4000)
     prep_seconds: int = Field(default=30, ge=0, le=600)
@@ -42,6 +45,8 @@ class InterviewSettings(BaseModel):
     voice: str = Field(default="nova", max_length=64)
     # Видео с ИИ-интервьюером вместо озвучки; работает, если на сервере настроен провайдер.
     avatar_enabled: bool = False
+    # Живой диалог по умолчанию; push_to_talk — классические кнопки записи с перезаписью.
+    interview_mode: InterviewModeLiteral = "live"
     invitation_days: int = Field(default=7, ge=1, le=60)
     candidate_feedback_mode: FeedbackModeLiteral = "after_decision"
     candidate_feedback_after_days: int = Field(default=3, ge=1, le=30)

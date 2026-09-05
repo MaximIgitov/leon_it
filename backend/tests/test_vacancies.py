@@ -37,6 +37,27 @@ async def test_create_and_read_vacancy(client: AsyncClient) -> None:
     assert [item["id"] for item in listing.json()] == [vacancy["id"]]
 
 
+async def test_interview_mode_defaults_to_live_and_switches_to_push_to_talk(
+    client: AsyncClient,
+) -> None:
+    _, token = await register(client)
+    vacancy = await _vacancy(client, token)
+    assert vacancy["settings"]["interview_mode"] == "live"
+    updated = await client.patch(
+        f"/api/vacancies/{vacancy['id']}",
+        json={"settings": {"interview_mode": "push_to_talk"}},
+        headers=bearer(token),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["settings"]["interview_mode"] == "push_to_talk"
+    unknown = await client.patch(
+        f"/api/vacancies/{vacancy['id']}",
+        json={"settings": {"interview_mode": "telepathy"}},
+        headers=bearer(token),
+    )
+    assert unknown.status_code == 422
+
+
 async def test_update_rubric_settings_and_questions(client: AsyncClient) -> None:
     _, token = await register(client)
     vacancy = await _vacancy(client, token)

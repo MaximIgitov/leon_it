@@ -217,7 +217,12 @@ export default function InvitationPage() {
         <dl className="mt-6 grid gap-3 sm:grid-cols-2">
           {[
             [ListChecks, `${invitation.question_count} вопр. · около ${minutesLabel(invitation.estimated_minutes)}`],
-            [Clock3, `Подготовка ${invitation.prep_seconds} с · ответ до ${Math.round(invitation.max_answer_seconds / 60)} мин`],
+            [
+              Clock3,
+              invitation.interview_mode === "push_to_talk"
+                ? `Подготовка ${invitation.prep_seconds} с · ответ до ${Math.round(invitation.max_answer_seconds / 60)} мин`
+                : `Живой диалог · ответ до ${Math.round(invitation.max_answer_seconds / 60)} мин, пауза завершает ответ`,
+            ],
             [Camera, "Нужны камера, микрофон и тихое место"],
             [CalendarClock, `Пройти до ${new Date(invitation.expires_at).toLocaleDateString("ru-RU")}`],
           ].map(([Icon, text]) => {
