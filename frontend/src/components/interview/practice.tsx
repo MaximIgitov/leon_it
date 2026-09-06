@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Mic, Square } from "lucide-react";
 
+import { Mascot } from "@/components/brand/mascot";
 import { Button } from "@/components/ui/button";
 import { pickMimeType } from "@/lib/media/recorder";
 import { useVoiceActivity, type SilenceEvent } from "@/lib/media/voice-activity";
@@ -31,10 +32,12 @@ export function PracticeQuestion({
   stream,
   onDone,
   mode = "live",
+  doneLabel = "Перейти к интервью",
 }: {
   stream: MediaStream;
   onDone: () => void;
   mode?: PracticeMode;
+  doneLabel?: string;
 }) {
   const [state, setState] = useState<State>("intro");
   const [url, setUrl] = useState<string | null>(null);
@@ -62,6 +65,11 @@ export function PracticeQuestion({
     },
     [url],
   );
+
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    if (recorder?.state === "recording") { recorder.onstop = null; recorder.stop(); }
+  }, []);
 
   const stop = () => {
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
@@ -128,17 +136,12 @@ export function PracticeQuestion({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">Тренировочный вопрос</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Один вопрос, чтобы освоиться с форматом. Ответ остаётся в вашем браузере, рекрутер его не увидит.
-          {live
-            ? " В интервью вопрос звучит, вы отвечаете, а пауза в несколько секунд завершает ответ сама."
-            : " В интервью вы нажимаете «Начать ответ», отвечаете и завершаете кнопкой."}
-        </p>
-      </div>
+      <div className="practice-question-heading"><Mascot name="listen" /><div>
+        <h2>Можно просто быть собой</h2>
+        <p>Пробный вопрос · запись только в твоём браузере</p>
+      </div></div>
 
-      <div className="rounded-xl border bg-muted/30 p-4">
+      <div className="rounded-xl border bg-secondary/30 p-4">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Вопрос</p>
         <p className="mt-1 text-lg font-semibold">{PRACTICE_QUESTION}</p>
       </div>
@@ -172,7 +175,7 @@ export function PracticeQuestion({
       ) : null}
       {state === "playback" ? (
         <p className="text-sm text-muted-foreground">
-          Так выглядит ваш ответ. Он никуда не отправлен: в интервью запись уйдёт рекрутеру, а после паузы прозвучит следующий вопрос.
+          Вот твой ответ. Можно посмотреть запись или попробовать ещё раз.
         </p>
       ) : null}
 
@@ -195,7 +198,7 @@ export function PracticeQuestion({
         {state === "playback" ? (
           <>
             <Button size="lg" onClick={onDone}>
-              Перейти к интервью <ArrowRight className="ml-2 h-4 w-4" />
+              {doneLabel} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
             <Button size="lg" variant="outline" onClick={again}>
               Ещё раз

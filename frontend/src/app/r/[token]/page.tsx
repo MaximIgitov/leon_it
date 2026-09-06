@@ -1,10 +1,12 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import { useParams } from "@/lib/router";
 import { createRef, useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { AnswerPlayer, type AnswerPlayerHandle } from "@/components/reports/answer-player";
 import { CodeSubmission } from "@/components/reports/code-submission";
 import { DecisionPanel } from "@/components/reports/decision-panel";
@@ -22,7 +24,7 @@ export default function SharedReportPage() {
   const { toast } = useToast();
   const [report, setReport] = useState<PublicReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const playerRefs = useRef<Map<string, React.RefObject<AnswerPlayerHandle>>>(new Map());
+  const playerRefs = useRef<Map<string, React.RefObject<AnswerPlayerHandle | null>>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -62,9 +64,9 @@ export default function SharedReportPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
+        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-4">
           <Logo size={28} />
-          {report ? <span className="text-sm text-muted-foreground">{report.organization_name}</span> : null}
+          <div className="header-actions min-w-0">{report ? <span className="truncate text-sm text-muted-foreground">{report.organization_name}</span> : null}<ThemeSwitch /></div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-8">
@@ -74,7 +76,7 @@ export default function SharedReportPage() {
             <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           </div>
         ) : !report ? (
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <RowsSkeleton />
         ) : (
           <>
             <p className="text-sm text-muted-foreground">{report.vacancy_title}</p>
@@ -139,6 +141,7 @@ export default function SharedReportPage() {
                       setReport((current) => (current ? { ...current, notes: [...current.notes, note] } : current));
                     } catch (caught) {
                       toast({ variant: "destructive", title: caught instanceof ApiError ? caught.message : "Не удалось добавить заметку" });
+                      return false;
                     }
                   }}
                   onSeek={seek}

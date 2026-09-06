@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, Send } from "lucide-react";
+import { ExternalLink, Send } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
@@ -104,7 +106,7 @@ export function HuntflowPush({ candidateId }: { candidateId: string }) {
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" onClick={send} disabled={pending || inFlight}>
         {pending || inFlight ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Skeleton className="mr-2 h-4 w-4 rounded-md" />
         ) : (
           <Send className="mr-2 h-4 w-4" />
         )}

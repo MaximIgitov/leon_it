@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useParams } from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Loader2, MailX, XCircle } from "lucide-react";
+import { CheckCircle2, MailX, XCircle } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, apiFetch } from "@/lib/api/client";
@@ -48,9 +51,9 @@ export default function UnsubscribePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4 py-12">
-      <Link href="/" aria-label="LeonIT — на главную">
+      <div className="flex w-full max-w-md items-center justify-between gap-4"><Link href="/" aria-label="LeonIT — на главную">
         <Logo size={30} />
-      </Link>
+      </Link><ThemeSwitch /></div>
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -81,7 +84,7 @@ export default function UnsubscribePage() {
               <Button onClick={unsubscribe} disabled={state === "loading"}>
                 {state === "loading" ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    <Skeleton className="mr-2 h-4 w-4 rounded-md" aria-hidden />
                     Отписываем…
                   </>
                 ) : (

@@ -1,20 +1,9 @@
-import Link from "next/link";
-
+import Link from "@/lib/router";
+import { ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
+import { Mascot } from "@/components/brand/mascot";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex h-16 items-center px-6">
-        <Link href="/" aria-label="LeonIT — на главную">
-          <Logo size={28} />
-        </Link>
-      </header>
-      <main className="flex flex-1 items-center justify-center px-4 pb-16">
-        <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-sm sm:p-8">
-          {children}
-        </div>
-      </main>
-    </div>
-  );
+  return <div className="auth-page"><header className="simple-header"><Link href="/" aria-label="LeonIT — на главную"><Logo size={40} /></Link><div className="header-actions"><ThemeSwitch /><Link href="/" className="header-back"><ArrowLeft size={14} />На главную</Link></div></header><main className="auth-main"><aside className="auth-story"><h2>Знакомьтесь<br />с кандидатами.</h2><Mascot name="mira" eager /></aside><div className="auth-card">{children}</div></main></div>;
 }

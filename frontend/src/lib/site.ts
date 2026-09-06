@@ -3,7 +3,7 @@
  * документы. Используются лендингом, robots.ts и sitemap.ts.
  */
 
-export const SITE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+export const SITE_URL = (import.meta.env.VITE_APP_URL ?? import.meta.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
 export const CONTACT_EMAIL = "info@napoleonit.ru";
 

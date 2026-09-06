@@ -1,9 +1,9 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "@/lib/router";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { Logo } from "@/components/brand/logo";
+import { PageSkeleton } from "@/components/ui/skeleton";
 import { accountsApi, type Me } from "@/lib/api/accounts";
 import { ApiError, getAccessToken, setAccessToken } from "@/lib/api/client";
 
@@ -89,9 +89,7 @@ export function useAuth(): AuthState {
 export function AuthLoading() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="animate-pulse">
-        <Logo size={36} />
-      </div>
+      <div className="w-full max-w-4xl p-6"><PageSkeleton /></div>
     </div>
   );
 }

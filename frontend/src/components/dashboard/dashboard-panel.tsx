@@ -1,7 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ClientOnly } from "@tanstack/react-router";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,10 +18,7 @@ import { FunnelChart } from "./funnel-chart";
 import { MetricTiles, TILE_COUNT, TILE_GRID } from "./metric-tiles";
 import { PeriodSwitch } from "./period-switch";
 
-const DailyChart = dynamic(() => import("./daily-chart"), {
-  ssr: false,
-  loading: () => <Skeleton className="h-64 w-full" />,
-});
+const DailyChart = lazy(() => import("./daily-chart"));
 
 const PERIOD_STORAGE_KEY = "leonit.dashboard.period";
 const DEFAULT_PERIOD: DashboardPeriod = "30";
@@ -44,7 +41,7 @@ function LoadingState() {
           <Skeleton key={index} className="h-28" />
         ))}
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="dashboard-charts">
         <Skeleton className="h-80" />
         <Skeleton className="h-80 lg:col-span-2" />
       </div>
@@ -115,9 +112,9 @@ export function DashboardPanel({
   }, [load]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">{toolbar}</div>
+    <div className="dashboard-panel">
+      <div className="dashboard-toolbar">
+        {toolbar && <div className="dashboard-vacancy-filter">{toolbar}</div>}
         <PeriodSwitch value={period ?? DEFAULT_PERIOD} onChange={changePeriod} />
       </div>
 
@@ -131,27 +128,27 @@ export function DashboardPanel({
         <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={loading}>
           <div className="space-y-4">
             <MetricTiles data={overview} />
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="dashboard-charts">
               <FunnelChart steps={overview.funnel} />
-              <Card className="lg:col-span-2">
+              <Card className="dashboard-daily">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">По дням</CardTitle>
-                  <CardDescription>Приглашения, завершённые интервью и заключения ИИ</CardDescription>
+                  <CardTitle className="text-base">Динамика интервью</CardTitle>
+                  <CardDescription>Активность за выбранный период</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <DailyChart points={series.points} />
+                  <ClientOnly fallback={<Skeleton className="h-64 w-full" />}>
+                    <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+                      <DailyChart points={series.points} />
+                    </Suspense>
+                  </ClientOnly>
                 </CardContent>
               </Card>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="dashboard-breakdowns">
               <RecommendationCard breakdown={overview.recommendation_breakdown} />
               <DecisionCard breakdown={overview.decision_breakdown} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Воронка считается по приглашённым за период; «пульс» за 7 дней и активные вакансии — без
-              учёта периода. Доля integrity-флагов появится вместе с модулем достоверности
-              {overview.avg_retakes !== null ? ` · перезаписей на ответ в среднем: ${overview.avg_retakes.toFixed(2)}` : ""}.
-            </p>
+
           </div>
         </div>
       ) : null}

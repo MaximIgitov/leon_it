@@ -1,24 +1,20 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "@/lib/router";
+import { usePathname } from "@/lib/router";
 import { useEffect, useState } from "react";
 import {
   BarChart3,
   Briefcase,
   Building2,
   Menu,
-  Monitor,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
-  Sun,
   Users,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 
-import { Logo, LogoMark } from "@/components/brand/logo";
+import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -31,7 +27,7 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Дашборд", icon: BarChart3 },
+  { href: "/dashboard", label: "Обзор", icon: BarChart3 },
   { href: "/vacancies", label: "Вакансии", icon: Briefcase },
   { href: "/candidates", label: "Кандидаты", icon: Users },
   { href: "/integrations", label: "Интеграции", icon: Plug },
@@ -40,54 +36,10 @@ export const NAV_ITEMS: NavItem[] = [
 
 const SIDEBAR_STORAGE_KEY = "leonit.sidebar.collapsed";
 
-function ThemeToggle({ compact }: { compact: boolean }) {
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
-
-  const options = [
-    { value: "light", icon: Sun, label: "Светлая" },
-    { value: "dark", icon: Moon, label: "Тёмная" },
-    { value: "system", icon: Monitor, label: "Системная" },
-  ] as const;
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1 rounded-lg bg-muted p-1",
-        compact ? "flex-col" : "justify-between",
-      )}
-      role="radiogroup"
-      aria-label="Тема оформления"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={theme === option.value}
-          aria-label={option.label}
-          title={option.label}
-          onClick={() => setTheme(option.value)}
-          className={cn(
-            "rounded-md p-1.5 transition-colors",
-            theme === option.value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <option.icon className="h-4 w-4" />
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function NavLinks({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   return (
-    <nav className="flex flex-1 flex-col gap-1 px-2" aria-label="Основная навигация">
+    <nav className="sidebar-nav" aria-label="Основная навигация">
       {NAV_ITEMS.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
@@ -98,11 +50,8 @@ function NavLinks({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: 
             title={collapsed ? item.label : undefined}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              collapsed && "justify-center px-2",
+              "sidebar-nav-link",
+              collapsed && "is-collapsed",
             )}
           >
             <item.icon className="h-4 w-4 shrink-0" />
@@ -129,65 +78,54 @@ function SidebarBody({
     <div className="flex h-full flex-col">
       <div
         className={cn(
-          "flex h-16 items-center border-b px-3",
-          collapsed ? "justify-center" : "justify-between",
+          "sidebar-brand",
+          collapsed && "is-collapsed",
         )}
       >
-        <Link href="/dashboard" aria-label="LeonIT — на дашборд" onClick={onNavigate}>
-          {collapsed ? <LogoMark size={28} /> : <Logo size={28} />}
-        </Link>
-        {onToggle && !collapsed ? (
+        {onToggle ? (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggle}
-            aria-label="Свернуть боковую панель"
+            className="sidebar-toggle"
+            aria-label={collapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
+            aria-expanded={!collapsed}
           >
-            <PanelLeftClose className="h-4 w-4" />
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
         ) : null}
+        {!collapsed && <Link href="/dashboard" aria-label="LeonIT — на дашборд" onClick={onNavigate}><Logo size={26} /></Link>}
       </div>
-      <div className="flex-1 overflow-y-auto py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <NavLinks collapsed={collapsed} onNavigate={onNavigate} />
       </div>
-      <div className="space-y-2 border-t p-3">
-        {onToggle && collapsed ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="w-full"
-            onClick={onToggle}
-            aria-label="Развернуть боковую панель"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </Button>
-        ) : null}
-        <ThemeToggle compact={collapsed} />
+      <div className="sidebar-footer space-y-2">
         {footer}
       </div>
     </div>
   );
 }
 
-type SidebarFooter = React.ReactNode | ((collapsed: boolean) => React.ReactNode);
+type SidebarFooter = React.ReactNode | ((collapsed: boolean, onNavigate?: () => void) => React.ReactNode);
 
-function renderFooter(footer: SidebarFooter | undefined, collapsed: boolean): React.ReactNode {
-  return typeof footer === "function" ? footer(collapsed) : footer;
+function renderFooter(footer: SidebarFooter | undefined, collapsed: boolean, onNavigate?: () => void): React.ReactNode {
+  return typeof footer === "function" ? footer(collapsed, onNavigate) : footer;
 }
 
 export function AppShell({
   children,
   header,
   sidebarFooter,
-  rightInset = 0,
+  assistant,
 }: {
   children: React.ReactNode;
   header?: React.ReactNode;
   sidebarFooter?: SidebarFooter;
-  /** Отступ справа под пристыкованную панель (ассистент), px; действует от `lg`. */
-  rightInset?: number;
+  assistant?: React.ReactNode;
 }) {
   const isMobile = useIsMobile();
+  const pathname = usePathname();
+  const currentPage = NAV_ITEMS.find(item => pathname.startsWith(item.href));
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -212,13 +150,10 @@ export function AppShell({
   };
 
   return (
-    <div className="app-shell flex bg-background">
+    <div className="app-shell bg-background" data-sidebar-collapsed={collapsed}>
       {!isMobile && (
         <aside
-          className={cn(
-            "hidden shrink-0 border-r bg-card transition-[width] duration-200 md:block",
-            collapsed ? "w-16" : "w-60",
-          )}
+          className="leon-sidebar hidden md:block"
         >
           <SidebarBody
             collapsed={collapsed}
@@ -229,10 +164,9 @@ export function AppShell({
       )}
 
       <div
-        className="flex min-w-0 flex-1 flex-col transition-[padding] duration-200 lg:pr-[var(--right-inset)]"
-        style={{ "--right-inset": `${rightInset}px` } as React.CSSProperties}
+        className="workspace-main flex min-w-0 flex-1 flex-col"
       >
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
+        <header className="workspace-topbar shrink-0">
           {isMobile && (
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
@@ -245,17 +179,19 @@ export function AppShell({
                 <SidebarBody
                   collapsed={false}
                   onNavigate={() => setMobileOpen(false)}
-                  footer={renderFooter(sidebarFooter, false)}
+                  footer={renderFooter(sidebarFooter, false, () => setMobileOpen(false))}
                 />
               </SheetContent>
             </Sheet>
           )}
+          <div className="workspace-breadcrumb"><strong>{currentPage?.label ?? "Кабинет"}</strong></div>
           <div className="flex min-w-0 flex-1 items-center gap-2">{header}</div>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">{children}</div>
+          <div className="workspace-content"><div key={pathname} className="workspace-page">{children}</div></div>
         </main>
       </div>
+      {assistant}
     </div>
   );
 }

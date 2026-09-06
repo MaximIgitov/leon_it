@@ -1,13 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useParams } from "@/lib/router";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { legalApi, type LegalDocument } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
 
@@ -26,17 +28,18 @@ export default function LegalPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="mx-auto flex h-16 max-w-3xl items-center px-4">
+        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between gap-4 px-4">
           <Link href="/" aria-label="LeonIT — на главную">
             <Logo size={28} />
           </Link>
+          <ThemeSwitch />
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-10">
         {error ? (
           <p className="text-destructive">{error}</p>
         ) : !document ? (
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <RowsSkeleton />
         ) : (
           <article>
             <p className="text-sm text-muted-foreground">

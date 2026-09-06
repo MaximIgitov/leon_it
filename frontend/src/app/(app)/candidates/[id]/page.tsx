@@ -1,14 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useParams } from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
 import { HhDialogCard } from "@/components/integrations/hh-dialog";
 import { HuntflowPush } from "@/components/integrations/huntflow-push";
 import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { candidatesApi, type Candidate, type Interview } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
@@ -34,10 +37,11 @@ export default function CandidatePage() {
   }, [load]);
 
   if (error) return <p className="text-destructive">{error}</p>;
-  if (!candidate) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
+  if (!candidate) return <RowsSkeleton />;
 
   return (
     <>
+      <Button variant="ghost" size="sm" asChild className="mb-3"><Link href="/candidates"><ArrowLeft size={16} />К кандидатам</Link></Button>
       <PageHeader title={candidate.full_name} description={candidate.email} actions={<HuntflowPush candidateId={candidate.id} />} />
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card>

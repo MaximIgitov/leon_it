@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, XCircle } from "lucide-react";
+import { RefreshCw, XCircle } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { CopyField, InviteDialog } from "@/components/candidates/invite-dialog";
@@ -42,7 +44,7 @@ function ScoreCell({ interview }: { interview: Interview }) {
   return <span className="text-sm text-muted-foreground">—</span>;
 }
 
-export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?: string; showVacancy?: boolean }) {
+export function InterviewsTable({ vacancyId, showVacancy = false, showInvite = true }: { vacancyId?: string; showVacancy?: boolean; showInvite?: boolean }) {
   const { can } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<Interview[] | null>(null);
@@ -76,19 +78,19 @@ export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?
 
   return (
     <div className="space-y-3">
-      {can("candidate.write") ? (
+      {showInvite && can("candidate.write") ? (
         <div className="flex justify-end">
           <InviteDialog vacancyId={vacancyId} onInvited={() => void load()} />
         </div>
       ) : null}
       {freshLink ? (
-        <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+        <div className="rounded-lg border bg-secondary/40 p-3 text-sm">
           <p className="mb-2">Новая ссылка (показывается один раз):</p>
           <CopyField value={freshLink.link} />
         </div>
       ) : null}
       {items === null ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <RowsSkeleton />
       ) : items.length === 0 ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           Приглашений пока нет.
@@ -114,7 +116,7 @@ export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?
                   <TableCell>
                     <Link
                       href={`/vacancies/${interview.vacancy_id}/interviews/${interview.id}`}
-                      className="font-medium hover:underline"
+                      className="table-row-link font-medium hover:underline"
                     >
                       {interview.candidate_name}
                     </Link>

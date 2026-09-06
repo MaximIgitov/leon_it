@@ -32,12 +32,12 @@ describe("панель достоверности", () => {
   it("показывает наблюдения и кнопки решения ревьюеру", () => {
     const html = renderToStaticMarkup(<IntegrityPanel report={report()} onReview={() => {}} />);
 
-    expect(html).toContain("Достоверность записи");
+    expect(html).toContain("Проверка записи");
     expect(html).toContain("Кандидат переключался с вкладки во время ответа");
     expect(html).toContain("Подтвердить");
     expect(html).toContain("Ложное срабатывание");
     // Оговорка про границы применения обязательна: это не приговор кандидату.
-    expect(html).toContain("решение принимает человек");
+    expect(html).toContain("личность и мимика не анализируются");
   });
 
   it("без права решения показывает наблюдения только для чтения", () => {
@@ -51,7 +51,8 @@ describe("панель достоверности", () => {
     const clean = renderToStaticMarkup(
       <IntegrityPanel report={report({ level: "info", observations: [], flags: 0 })} />,
     );
-    expect(clean).toContain("Ничего необычного");
+    expect(clean).toContain("замечаний не найдено");
+    expect(clean).toContain("Без замечаний");
 
     const empty = renderToStaticMarkup(
       <IntegrityPanel report={report({ checked: false, observations: [], flags: 0 })} />,

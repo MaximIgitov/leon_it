@@ -14,7 +14,7 @@
 | Образы | `ghcr.io/maximigitov/leon_it/backend`, `ghcr.io/maximigitov/leon_it/frontend` |
 
 Compose-сервисы: `postgres`, `api` (uvicorn), `worker` (очередь задач), `frontend`
-(Next.js standalone), `caddy`. Данные: том PostgreSQL и `/data/media` (видео, аудио,
+(TanStack Start / Nitro, Node 22), `caddy`. Данные: том PostgreSQL и `/data/media` (видео, аудио,
 ремуксы) — оба переживают пересборку образов.
 
 ## Выкат

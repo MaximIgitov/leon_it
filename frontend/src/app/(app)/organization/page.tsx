@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, Check, Copy, Link2, Loader2, Plus, ShieldOff, UserCheck } from "lucide-react";
+import { BookOpen, Building2, Check, Copy, Link2, Mail, Plus, ShieldOff, UserCheck, Users } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
@@ -27,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { accountsApi, type Invite, type Member, type Role } from "@/lib/api/accounts";
@@ -84,14 +87,13 @@ function OrganizationCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Организация</CardTitle>
+        <CardTitle>Профиль организации</CardTitle>
         <CardDescription>
-          Название видят кандидаты на странице интервью. Срок хранения — через сколько дней
-          видео и аудио ответов удаляются автоматически.
+          Название компании и срок хранения записей интервью.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-[1fr_180px_auto] sm:items-end">
-        <div className="space-y-2">
+      <CardContent className="flex flex-col gap-5 items-start">
+        <div className="space-y-2 w-full">
           <Label htmlFor="org-name">Название</Label>
           <Input id="org-name" value={name} onChange={(event) => setName(event.target.value)} />
         </div>
@@ -107,7 +109,7 @@ function OrganizationCard() {
           />
         </div>
         <Button onClick={save} disabled={pending}>
-          {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
           Сохранить
         </Button>
       </CardContent>
@@ -255,7 +257,7 @@ function CreateInviteDialog({ onCreated }: { onCreated: (invite: Invite) => void
             <Button onClick={() => setOpen(false)}>Готово</Button>
           ) : (
             <Button onClick={submit} disabled={pending}>
-              {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+              {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <Link2 className="mr-2 h-4 w-4" />}
               Создать ссылку
             </Button>
           )}
@@ -300,92 +302,29 @@ function MembersCard() {
       <CardHeader>
         <CardTitle>Участники</CardTitle>
         <CardDescription>
-          Смена роли и отзыв доступа действуют сразу: активные сессии участника завершаются.
+          Участники и роли.
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
         {members === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Участник</TableHead>
-                <TableHead>Роль</TableHead>
-                <TableHead>Последний вход</TableHead>
-                <TableHead className="text-right">Доступ</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {members.map((member) => {
-                const self = member.user_id === me?.id;
-                return (
-                  <TableRow key={member.id} className={member.is_active ? "" : "opacity-60"}>
-                    <TableCell>
-                      <div className="font-medium">{member.full_name ?? member.email}</div>
-                      <div className="text-xs text-muted-foreground">{member.email}</div>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={member.role}
-                        disabled={self || busy === member.id}
-                        onValueChange={(value) =>
-                          run(member.id, () =>
-                            accountsApi.updateMember(member.id, { role: value as Role }),
-                          )
-                        }
-                      >
-                        <SelectTrigger className="w-[210px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(Object.keys(ROLE_LABELS) as Role[]).map((value) => (
-                            <SelectItem key={value} value={value}>
-                              {ROLE_LABELS[value]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(member.last_login_at)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {self ? (
-                        <Badge variant="secondary">Это вы</Badge>
-                      ) : member.is_active ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy === member.id}
-                          onClick={() =>
-                            run(member.id, () => accountsApi.deactivateMember(member.id))
-                          }
-                        >
-                          <ShieldOff className="mr-2 h-4 w-4" />
-                          Отозвать
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy === member.id}
-                          onClick={() =>
-                            run(member.id, () => accountsApi.reactivateMember(member.id))
-                          }
-                        >
-                          <UserCheck className="mr-2 h-4 w-4" />
-                          Вернуть
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <div className="team-list">
+            {members.map((member) => {
+              const self = member.user_id === me?.id;
+              return <div key={member.id} className={`team-member ${member.is_active ? "" : "opacity-60"}`}>
+                <span className="member-avatar">{(member.full_name || member.email).slice(0, 1).toUpperCase()}</span>
+                <div className="member-identity"><strong>{member.full_name || member.email}{self && <small>Вы</small>}</strong><span>{member.email}</span><span className="member-last-login">Вход: {formatDate(member.last_login_at)}</span></div>
+                <Select value={member.role} disabled={self || busy === member.id} onValueChange={(value) => run(member.id, () => accountsApi.updateMember(member.id, { role: value as Role }))}>
+                  <SelectTrigger className="member-role"><SelectValue /></SelectTrigger>
+                  <SelectContent>{(Object.keys(ROLE_LABELS) as Role[]).map((role) => <SelectItem key={role} value={role}>{ROLE_LABELS[role]}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button variant="ghost" size="icon" aria-label={member.is_active ? "Отозвать доступ" : "Вернуть доступ"} disabled={self || busy === member.id} onClick={() => run(member.id, () => member.is_active ? accountsApi.deactivateMember(member.id) : accountsApi.reactivateMember(member.id))}>{member.is_active ? <ShieldOff size={17} /> : <UserCheck size={17} />}</Button>
+              </div>;
+            })}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -429,7 +368,7 @@ function InvitesCard() {
       <CardContent className="overflow-x-auto p-0">
         {invites === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : invites.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">Приглашений пока нет.</p>
@@ -503,14 +442,13 @@ function EmailsCard() {
       <CardHeader>
         <CardTitle>Письма</CardTitle>
         <CardDescription>
-          Всё, что система отправляла кандидатам и сотрудникам. Без почтового сервера письма
-          остаются здесь — ссылку из приглашения можно скопировать вручную.
+          Приглашения, напоминания и результаты отправки.
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
         {emails === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : emails.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">Писем пока не было.</p>
@@ -530,6 +468,8 @@ function EmailsCard() {
                 <TableRow
                   key={email.id}
                   className="cursor-pointer"
+                  tabIndex={0}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpenId(openId === email.id ? null : email.id); } }}
                   onClick={() => setOpenId(openId === email.id ? null : email.id)}
                 >
                   <TableCell className="text-sm">{email.to_email}</TableCell>
@@ -539,7 +479,7 @@ function EmailsCard() {
                   <TableCell className="text-sm">
                     {email.subject}
                     {openId === email.id ? (
-                      <pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-3 font-sans text-xs">
+                      <pre className="mt-2 whitespace-pre-wrap rounded bg-secondary p-3 font-sans text-xs">
                         {email.body_text}
                       </pre>
                     ) : null}
@@ -573,8 +513,7 @@ function KnowledgeCard() {
       <CardHeader>
         <CardTitle>База знаний</CardTitle>
         <CardDescription>
-          Документы о компании, по которым ассистент отвечает на вопросы и собирает черновики
-          вакансий: продукты, клиенты, стек, ценности, этапы найма, условия.
+          Материалы о компании, которые помогают Леону отвечать точнее.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center justify-between gap-4">
@@ -593,7 +532,7 @@ function KnowledgeCard() {
 }
 
 export default function OrganizationPage() {
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   if (!can("org.members")) {
     return (
       <>
@@ -606,17 +545,14 @@ export default function OrganizationPage() {
   }
   return (
     <>
-      <PageHeader
-        title="Организация"
-        description="Участники, роли и приглашения. Нанимающему менеджеру можно ограничить доступ отдельными вакансиями."
-      />
-      <div className="space-y-6">
-        <OrganizationCard />
-        <KnowledgeCard />
-        <MembersCard />
-        <InvitesCard />
-        <EmailsCard />
-      </div>
+      <div className="organization-heading"><span className="organization-avatar"><Building2 size={30} /></span><div><h1>{me?.organization.name || "Организация"}</h1><p>Ваше рабочее пространство</p></div></div>
+      <Tabs defaultValue="team">
+        <TabsList className="mb-6"><TabsTrigger value="team"><Users size={16} />Команда</TabsTrigger><TabsTrigger value="settings"><Building2 size={16} />Настройки</TabsTrigger><TabsTrigger value="emails"><Mail size={16} />Письма</TabsTrigger></TabsList>
+        <TabsContent value="team"><div className="organization-grid"><div className="space-y-5 min-w-0"><MembersCard /><InvitesCard /></div><aside className="organization-guide"><h2>Доступ в команде</h2>{(["owner", "recruiter", "hiring_manager"] as Role[]).filter((role) => ROLE_LABELS[role]).map((role) => <div key={role}><h3>{ROLE_LABELS[role]}</h3><p>{ROLE_DESCRIPTIONS[role]}</p></div>)}</aside></div></TabsContent>
+        <TabsContent value="settings"><div className="organization-settings"><OrganizationCard /><KnowledgeCard /></div></TabsContent>
+        <TabsContent value="emails"><EmailsCard /></TabsContent>
+      </Tabs>
     </>
   );
 }
+

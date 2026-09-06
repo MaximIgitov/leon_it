@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ExternalLink,
   KeyRound,
-  Loader2,
   MessageSquareText,
   Plug,
   RefreshCw,
@@ -179,7 +180,7 @@ function TokenConnectForm({ onChange, compact = false }: { onChange: (next: HhSt
       </div>
       <div className="flex flex-wrap gap-2">
         <Button onClick={submit} disabled={pending || token.trim().length < 16}>
-          {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+          <KeyRound className="mr-2 h-4 w-4" />
           Подключить
         </Button>
         <Button variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
@@ -254,17 +255,17 @@ function ConnectionCard({
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+    <Card className="integration-connection">
+      <header className="leon-card-header">
         <div>
           <CardTitle className="flex flex-wrap items-center gap-2">
             Подключение
-            {demo ? <Badge variant="outline">Демо-режим: данные из фикстур</Badge> : null}
+            {demo ? <Badge variant="outline">Демо-режим</Badge> : null}
           </CardTitle>
           <CardDescription>
             {demo
-              ? "Ключи HH_CLIENT_ID / HH_CLIENT_SECRET не заданы: вакансии, отклики и ответы кандидатов берутся из встроенных фикстур, сообщения никуда не уходят."
-              : "OAuth-авторизация менеджера работодателя на hh.ru. Токены хранятся в зашифрованном виде."}
+              ? "Посмотрите вакансии и отклики на демонстрационном аккаунте."
+              : "Войдите в аккаунт работодателя на hh.ru, чтобы получать вакансии и отклики."}
           </CardDescription>
         </div>
         {connection ? (
@@ -272,8 +273,8 @@ function ConnectionCard({
             {CONNECTION_STATUS_LABELS[connection.status]}
           </Badge>
         ) : null}
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </header>
+      <div className="leon-card-content space-y-4">
         {connection ? (
           <>
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -326,7 +327,7 @@ function ConnectionCard({
               {operates ? (
                 <Button onClick={sync} disabled={pending !== null}>
                   {pending === "sync" ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Skeleton className="mr-2 h-4 w-4 rounded-md" />
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
@@ -364,7 +365,7 @@ function ConnectionCard({
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={connect} disabled={pending !== null}>
                 {pending === "connect" ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Skeleton className="mr-2 h-4 w-4 rounded-md" />
                 ) : (
                   <Plug className="mr-2 h-4 w-4" />
                 )}
@@ -383,7 +384,7 @@ function ConnectionCard({
             Подключение и отключение HH.ru доступны владельцу организации.
           </p>
         )}
-      </CardContent>
+      </div>
     </Card>
   );
 }
@@ -430,7 +431,7 @@ function LinkToExisting({
         </SelectContent>
       </Select>
       <Button size="sm" variant="outline" disabled={!target || pending} onClick={submit}>
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : "ОК"}
+        {pending ? <Skeleton className="h-4 w-4 rounded-md" /> : "ОК"}
       </Button>
     </div>
   );
@@ -482,7 +483,7 @@ function VacanciesCard({
       <CardContent className="overflow-x-auto p-0">
         {vacancies === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : vacancies.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">У работодателя нет активных вакансий.</p>
@@ -558,7 +559,7 @@ function VacanciesCard({
                             disabled={importing === vacancy.id}
                             onClick={() => importVacancy(vacancy)}
                           >
-                            {importing === vacancy.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                            {importing === vacancy.id ? <Skeleton className="mr-1 h-4 w-4 rounded-md" /> : null}
                             Импортировать
                           </Button>
                           {locals.length > 0 ? (
@@ -664,7 +665,7 @@ function DialogEditor({
                 «{link.hh_title}» → <span className="font-medium text-foreground">{link.vacancy_title}</span>.
                 Плейсхолдеры подставляются при отправке:{" "}
                 {placeholders.map((name) => (
-                  <code key={name} className="mr-1 rounded bg-muted px-1 py-0.5 text-xs" title={HH_PLACEHOLDER_HINTS[name]}>
+                  <code key={name} className="mr-1 rounded bg-secondary px-1 py-0.5 text-xs" title={HH_PLACEHOLDER_HINTS[name]}>
                     {`{${name}}`}
                   </code>
                 ))}
@@ -673,14 +674,14 @@ function DialogEditor({
           </DialogDescription>
         </DialogHeader>
         {form === null ? (
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <RowsSkeleton />
         ) : (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <Switch checked={form.enabled} onCheckedChange={(enabled) => setForm({ ...form, enabled })} />
+              <div className="flex items-center gap-2 text-sm">
+                <Switch aria-label="Диалог с откликнувшимися" checked={form.enabled} onCheckedChange={(enabled) => setForm({ ...form, enabled })} />
                 Диалог включён
-              </label>
+              </div>
               <div className="flex items-center gap-2 text-sm">
                 <Label htmlFor="hh-max-days">Окно, дней</Label>
                 <Input
@@ -710,7 +711,7 @@ function DialogEditor({
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-muted-foreground">Превью</Label>
-                  <div className="rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2 text-sm whitespace-pre-wrap break-words">
+                  <div className="rounded-2xl rounded-tl-sm bg-secondary px-3.5 py-2 text-sm whitespace-pre-wrap break-words">
                     {renderTemplate(form[step.key], sample) || <span className="text-muted-foreground">пусто</span>}
                   </div>
                 </div>
@@ -723,7 +724,7 @@ function DialogEditor({
             Отмена
           </Button>
           <Button onClick={save} disabled={saving || form === null}>
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {saving ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
             Сохранить
           </Button>
         </DialogFooter>
@@ -773,7 +774,7 @@ function NegotiationsCard({
       <CardContent className="overflow-x-auto p-0">
         {items === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : items.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">
@@ -825,7 +826,7 @@ function NegotiationsCard({
                       </Button>
                       {operates && item.state === "needs_recruiter" ? (
                         <Button size="sm" variant="outline" disabled={taking === item.id} onClick={() => takeOver(item)}>
-                          {taking === item.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                          {taking === item.id ? <Skeleton className="mr-1 h-4 w-4 rounded-md" /> : null}
                           Взять в работу
                         </Button>
                       ) : null}
@@ -921,17 +922,17 @@ export default function HhIntegrationPage() {
   }, [toast]);
 
   return (
-    <>
-      <Link href="/integrations" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+    <section className="integration-detail">
+      <Link href="/integrations" className="integration-back">
         <ArrowLeft className="h-4 w-4" />
         Интеграции
       </Link>
       <PageHeader
-        title="HH.ru"
-        description="Импорт вакансий и откликов, диалог с кандидатом в чате HH и ссылка на видеоинтервью."
+        title="hh.ru" icon={<img src="/brand/hh.ico" alt="" className="integration-logo" />}
+        description="Вакансии, отклики и общение с кандидатами."
       />
       {status === null ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <RowsSkeleton />
       ) : (
         <div className="space-y-6">
           <ConnectionCard status={status} onChange={setStatus} onSynced={() => void loadData()} />
@@ -956,6 +957,6 @@ export default function HhIntegrationPage() {
         </div>
       )}
       <DialogEditor link={editing} onClose={() => setEditing(null)} onSaved={() => void loadData()} />
-    </>
+    </section>
   );
 }

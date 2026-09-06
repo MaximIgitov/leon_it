@@ -8,7 +8,7 @@
 ## Обзор
 
 ```
-кандидат ──HTTPS──▶ frontend (Next.js) ──/api──▶ api (FastAPI) ──▶ PostgreSQL
+кандидат ──HTTPS──▶ frontend (TanStack Start) ──/api──▶ api (FastAPI) ──▶ PostgreSQL
                        │                          │      ▲
                        │  подписанные ссылки      │      │ jobs (таблица-очередь)
                        ▼                          ▼      │
@@ -16,8 +16,9 @@
 ```
 
 * **frontend** — кабинет рекрутера/менеджера, комната интервью, лендинг,
-  публичный отчёт по ссылке. Next.js 14 App Router, TypeScript, Tailwind,
-  shadcn/ui; тема LeonIT (акцент `#140AF0`, Manrope).
+  публичный отчёт по ссылке. TanStack Start, React 19, TypeScript, Tailwind CSS 4,
+  HeroUI 3; тема LeonIT (зелёный, абрикосовый и тёплый коричневый, Nunito).
+  Визуальные правила и токены — [DESIGN.md](DESIGN.md).
 * **api** — модульный монолит на FastAPI: аккаунты и роли, вакансии, кандидаты
   и интервью, комната, отчёты, оценка, ассистент, публичный API, интеграции.
 * **worker** — тот же образ, другой entrypoint: обработка медиа, оценка,

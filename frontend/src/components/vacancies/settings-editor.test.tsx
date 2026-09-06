@@ -43,11 +43,15 @@ function vacancy(overrides: Partial<Vacancy>): Vacancy {
 
 const noop = () => undefined;
 
+// Переключатели HeroUI: скрытый <input role="switch">, у выключенного — атрибут disabled.
+function disabledSwitches(html: string): number {
+  return (html.match(/<input[^>]*role="switch"[^>]*>/g) ?? []).filter((tag) => /\sdisabled=""/.test(tag)).length;
+}
+
 describe("настройки интервью: ИИ-аватар", () => {
-  it("подсказка объясняет цену и что клипы готовятся при публикации", () => {
+  it("подсказка объясняет, что клипы готовятся при публикации, и когда аватар недоступен", () => {
     expect(avatarHint(true)).toContain("при публикации");
-    expect(avatarHint(true)).toContain("за минуту");
-    expect(avatarHint(false)).toContain("не настроен");
+    expect(avatarHint(false)).toContain("недоступен");
   });
 
   it("переключатель активен только когда на сервере настроен провайдер", () => {
@@ -57,13 +61,12 @@ describe("настройки интервью: ИИ-аватар", () => {
     expect(available).toContain("ИИ-аватар интервьюера");
     expect(available).toContain("Формат интервью");
     expect(available).toContain("В живом диалоге перезаписи нет");
-    expect(available).toContain("Клипы готовятся один раз при публикации");
+    expect(available).toContain("Клипы готовятся при публикации");
     const unavailable = renderToStaticMarkup(
       <SettingsEditor vacancy={vacancy({ avatar_available: false })} editable onSaved={noop} onError={noop} />,
     );
-    expect(unavailable).toContain("провайдер аватара не настроен");
+    expect(unavailable).toContain("Видеоаватар пока недоступен");
     // Без провайдера ровно один переключатель выключен; с провайдером все активны.
-    const disabledSwitches = (html: string) => (html.match(/role="switch"[^>]*\sdisabled=""/g) ?? []).length;
     expect(disabledSwitches(available)).toBe(0);
     expect(disabledSwitches(unavailable)).toBe(1);
   });

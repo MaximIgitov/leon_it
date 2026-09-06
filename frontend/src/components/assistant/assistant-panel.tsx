@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from "@/lib/router";
+import { usePathname } from "@/lib/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -10,10 +10,11 @@ import {
   Check,
   CheckCircle2,
   History,
-  Loader2,
   MessageSquare,
   Plus,
-  Send,
+  ArrowUp,
+  Mic,
+  Square,
   Sparkles,
   Trash2,
   Wrench,
@@ -31,7 +32,10 @@ import {
   proposalHref,
   type ActionLink,
 } from "@/components/assistant/action-views";
-import { ASSISTANT_DOCK_WIDTH, useAssistantDock } from "@/components/assistant/dock";
+import { useAssistantDock } from "@/components/assistant/dock";
+import { LogoGlyph } from "@/components/brand/logo";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useDictation } from "@/hooks/use-dictation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,9 +183,9 @@ function ActionCard({
     action.kind === "error" ? (
       <AlertCircle className="h-4 w-4 text-destructive" />
     ) : action.kind === "proposed" ? (
-      <Sparkles className="h-4 w-4 text-primary" />
+      <Sparkles className="h-4 w-4 text-accent" />
     ) : (
-      <CheckCircle2 className="h-4 w-4 text-success" />
+      <CheckCircle2 className="h-4 w-4 text-accent" />
     );
   const button = proposal ? proposalButton(proposal) : null;
   return (
@@ -189,7 +193,7 @@ function ActionCard({
       className={cn(
         "rounded-lg border bg-card p-3 text-sm",
         action.kind === "error" && "border-destructive/40",
-        action.kind === "proposed" && !dismissed && "border-primary/40",
+        action.kind === "proposed" && !dismissed && "border-accent/40",
       )}
     >
       <div className="flex items-start gap-2">
@@ -204,7 +208,7 @@ function ActionCard({
         </div>
       </div>
       {proposal && button ? (
-        <div className={cn("mt-3 rounded-md p-3", dismissed ? "bg-muted/60" : "bg-primary/5")}>
+        <div className={cn("mt-3 rounded-md p-3", dismissed ? "bg-secondary/60" : "bg-accent-soft")}>
           <p className="text-sm">{proposal.summary}</p>
           <div className="mt-2">
             <ProposalPreview proposal={proposal} result={action.result} />
@@ -235,7 +239,7 @@ function ActionCard({
                     }
                   }}
                 >
-                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  {pending ? <Skeleton className="h-4 w-4 rounded-md" /> : <Check className="h-4 w-4" />}
                   {button.label}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={pending || !onDismiss} onClick={() => onDismiss?.(proposal)}>
@@ -262,12 +266,7 @@ function ActionCard({
 function AssistantBubble({ children, role }: { children: React.ReactNode; role: "user" | "assistant" }) {
   return (
     <div className={cn("flex", role === "user" ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm",
-          role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-        )}
-      >
+      <div className="assistant-bubble" data-role={role}>
         {children}
       </div>
     </div>
@@ -304,6 +303,7 @@ function AssistantDock() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
+  const dictation = useDictation(input, setInput);
   const [confirmed, setConfirmed] = useState<Map<string, ActionLink | null>>(() => new Map());
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -553,18 +553,15 @@ function AssistantDock() {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(!open)} aria-label="Спросить ИИ" aria-pressed={open}>
-        <Sparkles className="h-4 w-4 text-primary" />
-        <span className="hidden sm:inline">Спросить ИИ</span>
-      </Button>
-      {open ? (
         <aside
           role="complementary"
           aria-label="Ассистент"
-          className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l bg-background shadow-xl lg:w-[var(--dock-w)]"
-          style={{ "--dock-w": `${ASSISTANT_DOCK_WIDTH}px` } as React.CSSProperties}
+          className="assistant-panel"
+          data-open={open}
+          aria-hidden={!open}
+          inert={!open}
         >
-          <div className="flex items-center gap-2 border-b px-4 py-3">
+          <div className="assistant-header">
             {view === "threads" ? (
               <Button variant="ghost" size="icon" onClick={() => setView("chat")} aria-label="Назад к чату">
                 <ArrowLeft className="h-4 w-4" />
@@ -576,17 +573,12 @@ function AssistantDock() {
             )}
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-semibold">
-                {view === "threads" ? "История чатов" : activeThread?.title || "Ассистент"}
+                {view === "threads" ? "История чатов" : activeThread?.title || "Леон"}
               </h2>
-              <p className="truncate text-xs text-muted-foreground">
-                {view === "threads"
-                  ? "Ваши чаты видны только вам"
-                  : "Видит вакансии, кандидатов и базу знаний. Изменения — только после вашего подтверждения"}
-              </p>
+
             </div>
-            <Button variant="ghost" size="sm" onClick={newChat} aria-label="Новый чат">
+            <Button variant="ghost" size="icon" onClick={newChat} aria-label="Новый чат" title="Новый чат">
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Новый чат</span>
             </Button>
             <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Закрыть ассистента">
               <X className="h-4 w-4" />
@@ -596,7 +588,7 @@ function AssistantDock() {
           {view === "threads" ? (
             <div className="thin-scrollbar flex-1 overflow-y-auto p-2">
               {threads === null ? (
-                <Loader2 className="m-4 h-5 w-5 animate-spin text-muted-foreground" />
+                <div className="space-y-3 p-3" aria-label="Загрузка чатов"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-3/4" /></div>
               ) : threads.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">Чатов пока нет.</p>
               ) : (
@@ -607,8 +599,8 @@ function AssistantDock() {
                         type="button"
                         onClick={() => void selectThread(thread.id)}
                         className={cn(
-                          "flex min-w-0 flex-1 flex-col rounded-lg px-3 py-2 text-left hover:bg-muted",
-                          thread.id === threadId && "bg-muted",
+                          "flex min-w-0 flex-1 flex-col rounded-lg px-3 py-2 text-left hover:bg-accent-soft",
+                          thread.id === threadId && "bg-accent-soft",
                         )}
                       >
                         <span className="flex items-center gap-2 text-sm font-medium">
@@ -631,28 +623,26 @@ function AssistantDock() {
               )}
             </div>
           ) : (
-            <div className="thin-scrollbar flex-1 overflow-y-auto px-4 py-4">
+            <div className="assistant-messages thin-scrollbar">
               {loadingMessages ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <div className="space-y-4" aria-label="Загрузка сообщений"><Skeleton className="ml-auto h-16 w-3/4" /><Skeleton className="h-28 w-full" /></div>
               ) : visibleMessages.length === 0 && !draft ? (
-                <div className="flex h-full flex-col justify-center">
-                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                  </div>
-                  <p className="mt-3 text-center font-medium">Чем помочь?</p>
+                <div className="assistant-empty">
+                  <LogoGlyph shimmer className="assistant-empty-logo" />
+                  <p className="mt-5 text-center text-lg font-extrabold">Привет! Что сделаем?</p>
                   <p className="mt-1 text-center text-sm text-muted-foreground">
-                    Ассистент видит, какая страница открыта, и работает с вакансиями, вопросами и отчётами.
+                    Вопросы, вакансии, отчёты — я рядом.
                   </p>
-                  <ul className="mt-5 space-y-1.5">
+                  <ul className="assistant-suggestions">
                     {placeholders.map((item) => (
                       <li key={item}>
                         <button
                           type="button"
                           onClick={() => void send(item)}
                           disabled={streaming}
-                          className="flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50"
+                          className="disabled:opacity-50"
                         >
-                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                           <span>{item}</span>
                         </button>
                       </li>
@@ -688,7 +678,7 @@ function AssistantDock() {
                         <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
                           {draft.running.length ? (
                             <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <Skeleton className="h-3.5 w-3.5 rounded-md" />
                               {toolProgressLabel(draft.running[draft.running.length - 1])}
                             </>
                           ) : (
@@ -708,36 +698,34 @@ function AssistantDock() {
           )}
 
           {view === "chat" ? (
-            <form
-              className="flex items-end gap-2 border-t p-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void send(input);
-              }}
-            >
-              <Textarea
-                ref={inputRef}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void send(input);
-                  }
-                }}
-                rows={2}
-                placeholder="Спросите или попросите что-то сделать…"
-                aria-label="Сообщение ассистенту"
-                className="thin-scrollbar min-h-[44px] resize-none"
-                disabled={streaming}
-              />
-              <Button type="submit" size="icon" disabled={streaming || !input.trim()} aria-label="Отправить">
-                {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
+            <form className="assistant-composer" onSubmit={event => { event.preventDefault(); dictation.stop(); void send(input); }}>
+              <div className="assistant-composer-input">
+                <Textarea ref={inputRef} value={input} onChange={event => setInput(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault(); dictation.stop(); void send(input);
+                    }
+                  }} rows={4} maxLength={8000} placeholder="Спросите что-нибудь…" aria-label="Сообщение ассистенту" />
+                {input.length > 0 && <span className="assistant-counter">{input.length.toLocaleString("ru-RU")} / 8 000</span>}
+              </div>
+              <div className="assistant-composer-footer">
+                <span className="assistant-composer-hint">Shift + Enter — новая строка</span>
+                <div className="assistant-composer-actions">
+                  <Button variant="ghost" size="icon" type="button" onClick={dictation.toggle} disabled={!dictation.supported || streaming}
+                    aria-label={dictation.listening ? "Остановить голосовой ввод" : "Ввести голосом"} aria-pressed={dictation.listening}
+                    title={dictation.supported ? "Ввести голосом" : "Голосовой ввод недоступен в этом браузере"}><Mic size={17} /></Button>
+                  {streaming ? <Button type="button" variant="secondary" size="icon" aria-label="Остановить ответ" onClick={() => {
+                    abortRef.current?.abort();
+                    if (draft?.text) setMessages(items => [...items, { id: `stopped-${Date.now()}`, role: "assistant", content: draft.text, actions: draft.actions, created_at: new Date().toISOString() }]);
+                    setDraft(null); setStreaming(false);
+                  }}><Square size={14} fill="currentColor" /></Button> :
+                    <Button className="assistant-send" type="submit" size="sm" disabled={!input.trim() || loadingMessages} aria-label="Отправить"><kbd>Enter</kbd><ArrowUp size={18} /></Button>}
+                </div>
+              </div>
+              {dictation.error && <p className="assistant-speech-error" role="alert">{dictation.error}</p>}
             </form>
           ) : null}
         </aside>
-      ) : null}
     </>
   );
 }
@@ -746,4 +734,11 @@ export function AssistantPanel() {
   const { can } = useAuth();
   if (!can("assistant.use")) return null;
   return <AssistantDock />;
+}
+
+export function AssistantTrigger() {
+  const { can } = useAuth();
+  const { open, setOpen } = useAssistantDock();
+  if (open || !can("assistant.use")) return null;
+  return <Button variant="outline" size="sm" className="assistant-trigger" onClick={() => setOpen(true)} aria-label="Спросить Леона"><Sparkles size={17} className="text-primary" /><span>Спросить Леона</span></Button>;
 }

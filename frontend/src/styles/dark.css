@@ -1,0 +1,26 @@
+/* Brand illustrations keep their colours; interface surfaces follow the theme. */
+:root.dark .logo-shimmer { color: #71816f; }
+:root.dark .journey-modal { background: var(--surface); }
+:root.dark .journey-intro { border-color: var(--border); }
+:root.dark .journey-map { background: #34482a; }
+:root.dark .journey-scenery { filter: brightness(.7) saturate(.85); }
+:root.dark .journey-stop-label,
+:root.dark .journey-stop[data-current="true"] .journey-stop-label { background: #222824ed; color: var(--foreground); box-shadow: 0 3px 0 #111a1480; }
+:root.dark .journey-stop-label > span { color: var(--muted); }
+:root.dark .journey-stop[data-complete="true"] .journey-stop-label > span { color: var(--brand-yellow); }
+:root.dark .journey-body { scrollbar-color: var(--border) var(--surface); }
+:root.dark .member-avatar { background: var(--orange-soft); color: var(--orange-deep); }
+:root.dark .team-member:nth-child(2n) .member-avatar,
+:root.dark .member-identity small { background: var(--green-soft); color: var(--primary); }
+:root.dark .step-card:not(.step-orange),
+:root.dark .step-card:not(.step-orange) p,
+:root.dark .step-card:not(.step-orange) .step-card-top { color: #352f28; }
+:root.dark .integration-journey li:not(:nth-child(2)) { color: #352f28; }
+:root.dark .step-chip { color: var(--foreground); }
+:root.dark .mascot-human { mix-blend-mode: normal; background: white; border-radius: 28px; }
+:root.dark .auth-story { background: #e8f8d4; color: #352f28; }
+:root.dark .auth-story .mascot-human { mix-blend-mode: multiply; background: transparent; }
+:root.dark .hero-team { height: auto; top: 50%; bottom: auto; translate: 0 -50%; border-radius: 36px; }
+:root.dark .practice-preview-person { color: #352f28; }
+:root.dark .skip-link { background: var(--accent); }
+:root.dark .button--danger { color: #321a16; }

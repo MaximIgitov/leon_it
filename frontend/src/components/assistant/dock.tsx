@@ -11,9 +11,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 export const ASSISTANT_OPEN_EVENT = "leonit:assistant-open";
 
-/** Ширина пристыкованной панели на широких экранах, px. */
-export const ASSISTANT_DOCK_WIDTH = 480;
-
 export type AssistantOpenDetail = {
   /** Текст, который подставить в поле ввода. */
   prompt?: string;

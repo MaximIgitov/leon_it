@@ -16,7 +16,7 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
     <Card className="h-full">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Воронка</CardTitle>
-        <CardDescription>От приглашения до решения по кандидату</CardDescription>
+        <CardDescription>Путь кандидата</CardDescription>
       </CardHeader>
       <CardContent>
         {total === 0 ? (
@@ -35,19 +35,19 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
                       <span className="font-semibold">{formatCount(step.count)}</span>
                       {index > 0 ? (
                         <span className="ml-2 text-xs text-muted-foreground">
-                          {formatPercent(step.rate_from_previous)} с шага
+                          {formatPercent(step.rate_from_previous)}
                         </span>
                       ) : null}
                     </span>
                   </div>
                   <div
-                    className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                    className="h-3 w-full overflow-hidden rounded-full bg-secondary"
                     role="img"
                     aria-label={`${step.label}: ${step.count} из ${total}`}
                   >
                     <div
-                      className="h-full rounded-full bg-primary transition-[width] duration-500"
-                      style={{ width: `${Math.max(share * 100, step.count ? 2 : 0)}%`, opacity: 1 - index * 0.09 }}
+                      className="h-full rounded-full transition-[width] duration-300"
+                      style={{ width: `${Math.max(share * 100, step.count ? 2 : 0)}%`, background: "var(--brand-green)" }}
                     />
                   </div>
                 </li>

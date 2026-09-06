@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  Area,
-  AreaChart,
+  Line,
+  LineChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -22,9 +22,9 @@ import { formatDay, formatDayLong } from "./format";
  * браузере, а на сервере ему нечего мерить.
  */
 const SERIES = [
-  { key: "invited", label: "Приглашено", color: "hsl(var(--primary))" },
-  { key: "completed", label: "Завершено", color: "hsl(var(--success))" },
-  { key: "evaluated", label: "Оценено", color: "hsl(var(--warning))" },
+  { key: "invited", label: "Приглашено", color: "var(--chart-blue)" },
+  { key: "completed", label: "Завершено", color: "var(--brand-green)" },
+  { key: "evaluated", label: "Оценено", color: "var(--chart-orange)" },
 ] as const;
 
 function ChartTooltip({ active, payload, label }: TooltipProps<number, string>) {
@@ -48,46 +48,40 @@ function ChartTooltip({ active, payload, label }: TooltipProps<number, string>) 
 }
 
 export default function DailyChart({ points }: { points: TimeseriesPoint[] }) {
-  const axisStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+  const axisStyle = { fill: "var(--muted-foreground)", fontSize: 11 };
   return (
     <div className="space-y-3">
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={points} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-            <defs>
-              {SERIES.map((series) => (
-                <linearGradient key={series.key} id={`fill-${series.key}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={series.color} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={series.color} stopOpacity={0.02} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
+          <LineChart data={points} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+
+            <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="date"
               tickFormatter={formatDay}
               tick={axisStyle}
               tickLine={false}
-              axisLine={{ stroke: "hsl(var(--border))" }}
+              axisLine={{ stroke: "var(--border)" }}
               minTickGap={28}
             />
             <YAxis allowDecimals={false} tick={axisStyle} tickLine={false} axisLine={false} width={44} />
-            <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--border))" }} />
+            <Tooltip content={<ChartTooltip />} cursor={{ stroke: "var(--border)" }} />
             {SERIES.map((series) => (
-              <Area
+              <Line
                 key={series.key}
                 type="monotone"
                 dataKey={series.key}
                 name={series.label}
                 stroke={series.color}
-                strokeWidth={2}
-                fill={`url(#fill-${series.key})`}
-                dot={false}
+                strokeWidth={series.key === "completed" ? 3 : 2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dot={{ r: 2, fill: series.color, strokeWidth: 0 }}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 isAnimationActive={false}
               />
             ))}
-          </AreaChart>
+          </LineChart>
         </ResponsiveContainer>
       </div>
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Легенда">

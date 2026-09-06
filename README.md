@@ -12,7 +12,7 @@
 | Каталог | Что внутри |
 |---|---|
 | `backend/` | FastAPI, SQLAlchemy 2, Alembic — API, фоновые задачи, шлюз к моделям |
-| `frontend/` | Next.js 14, TypeScript, Tailwind, shadcn/ui — кабинет, комната интервью, лендинг |
+| `frontend/` | TanStack Start, React 19, TypeScript, Tailwind 4, HeroUI 3 — кабинет, комната интервью, лендинг; запуск `cd frontend && npm run dev`, настройки API в [frontend/README.md](frontend/README.md) |
 | `e2e/` | Playwright — регрессионные сценарии |
 | `deploy/` | docker compose, Caddy, скрипты выката |
 | `docs/` | [план разработки](docs/ROADMAP.md), архитектура, runbook |

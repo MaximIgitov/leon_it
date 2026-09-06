@@ -1,18 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/router";
 import { ChevronUp, LogOut } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Dropdown } from "@heroui/react";
 import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -32,18 +25,17 @@ export function UserMenu({ compact }: { compact: boolean }) {
   if (!me) return null;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
+    <Dropdown>
+      <Dropdown.Trigger
           type="button"
           className={cn(
-            "flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-muted",
+            "flex w-full items-center gap-2 rounded-2xl p-2 text-left transition-colors hover:bg-secondary",
             compact && "justify-center",
           )}
           aria-label="Меню пользователя"
         >
           <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+            <AvatarFallback className="bg-primary/10 text-xs font-extrabold text-primary">
               {initials(me.full_name, me.email)}
             </AvatarFallback>
           </Avatar>
@@ -60,24 +52,24 @@ export function UserMenu({ compact }: { compact: boolean }) {
               <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
             </>
           )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-64">
-        <DropdownMenuLabel className="font-normal">
+        </Dropdown.Trigger>
+      <Dropdown.Popover placement="top end" className="w-64 rounded-3xl p-2">
+        <div className="mb-1 border-b px-3 py-3">
           <span className="block truncate text-sm font-medium">{me.full_name ?? me.email}</span>
           <span className="block truncate text-xs text-muted-foreground">{me.email}</span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={() => {
+        </div>
+        <Dropdown.Menu aria-label="Аккаунт">
+        <Dropdown.Item id="sign-out" textValue="Выйти"
+          onAction={() => {
             signOut();
             router.replace("/login");
           }}
         >
           <LogOut className="mr-2 h-4 w-4" />
           Выйти
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </Dropdown.Item>
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
   );
 }

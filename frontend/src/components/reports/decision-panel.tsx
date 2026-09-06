@@ -1,83 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Pause, X } from "lucide-react";
-
+import { useEffect, useState } from "react";
+import { ArrowRight, Check, Pause, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DECISION_LABELS, type Decision } from "@/lib/api/reports";
-import { cn } from "@/lib/utils";
 
-export function DecisionPanel({
-  decision,
-  note,
-  disabled,
-  onDecide,
-}: {
-  decision: string | null;
-  note: string | null;
-  disabled?: boolean;
+export function DecisionPanel({ decision, note, disabled, onDecide }: {
+  decision: string | null; note: string | null; disabled?: boolean;
   onDecide: (decision: Decision, note: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(note ?? "");
-  const [pending, setPending] = useState<Decision | null>(null);
-
-  const run = async (value: Decision) => {
-    setPending(value);
-    try {
-      await onDecide(value, draft);
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const options: { value: Decision; icon: React.ElementType; variant: "default" | "destructive" | "outline" }[] = [
-    { value: "advance", icon: Check, variant: "default" },
-    { value: "hold", icon: Pause, variant: "outline" },
-    { value: "reject", icon: X, variant: "destructive" },
-  ];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Решение</CardTitle>
-        <CardDescription>
-          Решение принимает человек. Рекомендация модели — только подсказка.
-          {decision ? (
-            <span className="ml-1 font-medium text-foreground">
-              Текущее: {DECISION_LABELS[decision as Decision] ?? decision}.
-            </span>
-          ) : null}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Textarea
-          rows={3}
-          placeholder="Комментарий к решению (необязательно)"
-          value={draft}
-          disabled={disabled}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <div className="flex flex-wrap gap-2">
-          {options.map((option) => (
-            <Button
-              key={option.value}
-              variant={option.variant}
-              disabled={disabled || pending !== null}
-              onClick={() => run(option.value)}
-              className={cn(decision === option.value && "ring-2 ring-ring ring-offset-2")}
-            >
-              {pending === option.value ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <option.icon className="mr-2 h-4 w-4" />
-              )}
-              {DECISION_LABELS[option.value]}
-            </Button>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const [selected, setSelected] = useState<Decision | null>(decision as Decision | null);
+  const [pending, setPending] = useState(false);
+  useEffect(() => setSelected(decision as Decision | null), [decision]);
+  const options = [
+    { value: "advance", title: "Следующий этап", text: "Продолжить знакомство", icon: ArrowRight },
+    { value: "hold", title: "На паузе", text: "Вернуться к решению позже", icon: Pause },
+    { value: "reject", title: "Отказ", text: "Завершить рассмотрение", icon: X },
+  ] as const;
+  return <section className="report-card decision-panel"><h2>Ваше решение</h2><p className="report-muted">Выберите следующий шаг для кандидата.</p><div className="decision-options" role="group" aria-label="Решение по кандидату">{options.map(option => <button key={option.value} type="button" disabled={disabled || pending} aria-pressed={selected === option.value} data-decision={option.value} onClick={() => setSelected(option.value)}><option.icon size={21} /><span><strong>{option.title}</strong><small>{option.text}</small></span>{selected === option.value && <Check size={18} />}</button>)}</div>
+    <Label htmlFor="decision-comment">Комментарий</Label><Textarea id="decision-comment" rows={4} placeholder="Что важно учесть команде" value={draft} disabled={disabled || pending} onChange={event => setDraft(event.target.value)} />
+    <footer><Button disabled={disabled || pending || !selected} onClick={async () => { if (!selected) return; setPending(true); try { await onDecide(selected, draft); } finally { setPending(false); } }}>{pending ? "Сохраняем…" : "Сохранить решение"}</Button>{decision && <span>Сохранено: {DECISION_LABELS[decision as Decision] ?? decision}</span>}</footer>
+  </section>;
 }

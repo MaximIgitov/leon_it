@@ -1,80 +1,25 @@
-import Link from "next/link";
-import { ArrowRight, Briefcase, ClipboardList, Link2 } from "lucide-react";
-
+import Link from "@/lib/router";
+import { ArrowRight, AudioLines, Check, Quote } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-const STEPS = [
-  {
-    icon: Briefcase,
-    title: "Вакансия",
-    text: "Требования, вопросы и рубрика по компетенциям. Ассистент предложит черновик, вы поправите.",
-  },
-  {
-    icon: Link2,
-    title: "Ссылка",
-    text: "Персональное приглашение со сроком. Кандидат проходит интервью, когда ему удобно, без согласования слотов.",
-  },
-  {
-    icon: ClipboardList,
-    title: "Заключение",
-    text: "Транскрипт, оценки по критериям с цитатами, сильные стороны, риски и рекомендация. Решение — за вами.",
-  },
-] as const;
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ForRecruiters() {
-  return (
-    <section id="recruiters" aria-labelledby="recruiters-title" className="scroll-mt-20 py-16 sm:py-24">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="overflow-hidden rounded-3xl bg-primary px-6 py-10 text-primary-foreground sm:px-10 sm:py-14">
-          <div className="grid gap-10 lg:grid-cols-[1fr_1.2fr] lg:items-center">
-            <div>
-              <p className="text-sm font-semibold opacity-80">Рекрутерам и нанимающим менеджерам</p>
-              <h2 id="recruiters-title" className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-                {"Вакансия → ссылка → структурированное заключение"}
-              </h2>
-              <p className="mt-4 text-pretty opacity-90">
-                Первичный отбор без десятков созвонов. Каждый кандидат отвечает на одни и те же вопросы, а вы
-                сравниваете их по одной рубрике и смотрите видео только там, где это нужно.
-              </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Button size="lg" variant="secondary" asChild className="bg-background text-foreground hover:bg-background/90">
-                  <Link href="/register">
-                    Для рекрутеров
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </Link>
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  asChild
-                  className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
-                >
-                  <Link href="/login">Войти в кабинет</Link>
-                </Button>
-              </div>
-            </div>
-            <ol className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              {STEPS.map((step, index) => (
-                <li key={step.title} className="rounded-2xl bg-primary-foreground/10 p-5 backdrop-blur-sm">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15"
-                      aria-hidden="true"
-                    >
-                      <step.icon className="h-4 w-4" />
-                    </span>
-                    <h3 className="font-semibold">
-                      <span className="sr-only">Шаг {index + 1}: </span>
-                      {step.title}
-                    </h3>
-                  </div>
-                  <p className="mt-3 text-sm opacity-90">{step.text}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
+  return <section id="recruiters" className="landing-section" aria-labelledby="recruiters-title">
+    <div className="recruiter-report-section">
+      <div className="recruiter-copy">
+        <h2 id="recruiters-title">Отчёт по каждому интервью</h2>
+        <p>Посмотрите ответы, сравните навыки и обсудите кандидата с командой.</p>
+        <Button size="lg" asChild><Link href="/register">Создать вакансию <ArrowRight size={19} /></Link></Button>
       </div>
-    </section>
-  );
+      <div className="report-sample" aria-label="Пример отчёта об интервью">
+        <div className="report-sample-header"><strong>Frontend-разработчик</strong><span>Пример отчёта</span></div>
+        <Tabs defaultValue="answers">
+          <TabsList aria-label="Содержание примера отчёта"><TabsTrigger value="answers">Ответы</TabsTrigger><TabsTrigger value="skills">Критерии</TabsTrigger><TabsTrigger value="quotes">Цитаты</TabsTrigger></TabsList>
+          <TabsContent value="answers"><ol className="report-sample-answers">{["Расскажи о своём проекте", "Как ты выбирал решение?", "Как работал с командой?"].map((question, index) => <li key={question}><span>0{index + 1}</span><strong>{question}</strong><AudioLines size={22} aria-hidden /></li>)}</ol></TabsContent>
+          <TabsContent value="skills"><div className="report-sample-skills">{["Технические навыки", "Решение задач", "Работа в команде"].map(skill => <div key={skill}><Check size={22} aria-hidden /><strong>{skill}</strong></div>)}<p>Вы задаёте критерии в вакансии. Леон разбирает ответы по каждому из них.</p></div></TabsContent>
+          <TabsContent value="quotes"><blockquote className="report-sample-quote"><Quote size={30} aria-hidden /><p>«Я отвечал за интерфейс: обсудил сценарии с дизайнером и разбил работу на небольшие задачи».</p><footer>Пример цитаты из ответа</footer></blockquote></TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  </section>;
 }

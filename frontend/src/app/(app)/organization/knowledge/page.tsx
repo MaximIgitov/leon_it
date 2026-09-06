@@ -1,7 +1,9 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, FileText, Loader2, Search, Trash2, Upload } from "lucide-react";
+import { BookOpen, FileText, Search, Trash2, Upload } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
@@ -170,7 +172,7 @@ function AddDocumentCard({
               </div>
             </div>
             <Button onClick={submitFile} disabled={pending || !file}>
-              {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
               Загрузить
             </Button>
           </TabsContent>
@@ -206,7 +208,7 @@ function AddDocumentCard({
               />
             </div>
             <Button onClick={submitText} disabled={pending || !title.trim() || !text.trim()}>
-              {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
               Сохранить
             </Button>
           </TabsContent>
@@ -260,7 +262,7 @@ function SearchCard({ total }: { total: number }) {
             aria-label="Поисковый запрос"
           />
           <Button type="submit" variant="secondary" disabled={pending || !query.trim()}>
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            {pending ? <Skeleton className="h-4 w-4 rounded-md" /> : <Search className="h-4 w-4" />}
             <span className="ml-2">Найти</span>
           </Button>
         </form>
@@ -332,7 +334,7 @@ function DocumentsCard({
       <CardContent>
         {items === null ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Загружаем…
+            <Skeleton className="h-4 w-4 rounded-md" /> Загружаем…
           </div>
         ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -464,7 +466,7 @@ export default function KnowledgePage() {
     <>
       <PageHeader
         title="База знаний"
-        description="Документы о компании для ассистента и генерации вакансий: продукты, клиенты, стек, ценности, этапы найма, условия. Поиск лексический, документы не покидают вашу организацию."
+        description="Познакомьте Леона с вашей компанией."
       />
       <div className="space-y-6">
         {canWrite ? <AddDocumentCard formats={formats} onAdded={load} /> : null}

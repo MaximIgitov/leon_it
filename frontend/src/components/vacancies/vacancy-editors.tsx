@@ -1,11 +1,14 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useState } from "react";
-import { Archive, ArchiveRestore, Loader2, Send, Undo2, X } from "lucide-react";
+import { Dropdown } from "@heroui/react";
+import { Archive, ArchiveRestore, MoreHorizontal, Send, Undo2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -45,7 +48,7 @@ export function SaveBar({
   return (
     <div className="flex items-center gap-2">
       <Button onClick={onSave} disabled={pending || !dirty}>
-        {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
         Сохранить
       </Button>
       {dirty ? (
@@ -113,10 +116,7 @@ export function VacancyDescriptionEditor({ vacancy, editable, onSaved, onError }
     <Card>
       <CardHeader>
         <CardTitle>Описание вакансии</CardTitle>
-        <CardDescription>
-          Описание и требования читает модель-оценщик: чем конкретнее требования, тем точнее
-          заключение. Навыки подсказывают распознаванию речи термины.
-        </CardDescription>
+
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-[1fr_200px]">
@@ -212,8 +212,9 @@ export function VacancyStatusActions({
   const run = async (action: () => Promise<Vacancy>, success: string, fallback: string) => {
     setPending(true);
     try {
-      onChange(await action());
-      toast({ title: success });
+      const updated = await action();
+      onChange(updated);
+      toast({ title: success, celebrate: updated.status === "published" && vacancy.status !== "published" });
     } catch (error) {
       onError(error, fallback);
     } finally {
@@ -241,9 +242,10 @@ export function VacancyStatusActions({
           Опубликовать
         </Button>
       )}
-      <Button variant="ghost" size="sm" disabled={pending} onClick={() => run(() => vacanciesApi.archive(vacancy.id), "Вакансия перенесена в архив", "Не удалось архивировать")}>
-        <Archive className="mr-2 h-4 w-4" />В архив
-      </Button>
+      <Dropdown>
+        <Dropdown.Trigger aria-label="Действия с вакансией" className="vacancy-more" isDisabled={pending}><MoreHorizontal size={20} /></Dropdown.Trigger>
+        <Dropdown.Popover><Dropdown.Menu aria-label="Действия с вакансией"><Dropdown.Item id="archive" textValue="В архив" onAction={() => run(() => vacanciesApi.archive(vacancy.id), "Вакансия перенесена в архив", "Не удалось архивировать")}><Archive size={16} />В архив</Dropdown.Item></Dropdown.Menu></Dropdown.Popover>
+      </Dropdown>
     </>
   );
 }

@@ -7,9 +7,10 @@
  */
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000/api";
+  (import.meta.env.VITE_BACKEND_API_URL ?? import.meta.env.NEXT_PUBLIC_BACKEND_API_URL ?? "/api").replace(/\/$/, "");
 
 const TOKEN_STORAGE_KEY = "leonit.access_token";
+export const WORKSPACE_UPDATED_EVENT = "leonit:workspace-updated";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -84,6 +85,9 @@ export async function apiFetch<T = unknown>(
       /* тело не JSON */
     }
     throw new ApiError(response.status, detail, response.headers.get("x-request-id"), code);
+  }
+  if (typeof window !== "undefined" && token === undefined && !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase()) && /^\/(vacancies|candidates|interviews)(\/|\?|$)/.test(path)) {
+    window.dispatchEvent(new Event(WORKSPACE_UPDATED_EVENT));
   }
   if (raw) return response as unknown as T;
   if (response.status === 204) return undefined as T;

@@ -1,13 +1,17 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Search, Users } from "lucide-react";
+import { Search } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { InviteDialog } from "@/components/candidates/invite-dialog";
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
+import { Mascot } from "@/components/brand/mascot";
 import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
@@ -20,10 +24,14 @@ export default function CandidatesPage() {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<Candidate[] | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       setItems(await candidatesApi.list(search.trim() || undefined));
     } catch (error) {
+      setLoadError(error instanceof ApiError ? error.message : "Не удалось загрузить кандидатов");
       toast({ variant: "destructive", title: error instanceof ApiError ? error.message : "Не удалось загрузить кандидатов" });
     }
   }, [search, toast]);
@@ -37,28 +45,23 @@ export default function CandidatesPage() {
     <>
       <PageHeader
         title="Кандидаты"
-        description="Все, кого приглашали на интервью. Один кандидат может проходить несколько вакансий."
+        description="Кандидаты и их интервью."
         actions={can("candidate.write") ? <InviteDialog onInvited={() => void load()} /> : undefined}
       />
       <div className="relative mb-4 max-w-sm">
-        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-4 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Поиск по имени или e-mail"
+          aria-label="Поиск кандидатов"
           className="pl-9"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-      {items === null ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      {loadError ? <div className="empty-state" role="alert"><Mascot name="think" /><h2>Не получилось загрузить</h2><p>{loadError}</p><Button variant="outline" onClick={() => void load()}>Попробовать снова</Button></div> : items === null ? (
+        <RowsSkeleton />
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-10 text-center">
-          <Users className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="mt-3 font-medium">Кандидатов пока нет</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Пригласите первого — по одному или списком из вставленного текста.
-          </p>
-        </div>
+        <div className="empty-state"><Mascot name={search.trim() ? "think" : "max"} /><h2>{search.trim() ? "Нет результатов" : "Кандидатов пока нет"}</h2><p>{search.trim() ? "Попробуйте другое имя или e-mail." : "Пригласите кандидата со страницы вакансии."}</p></div>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <Table>
@@ -74,7 +77,7 @@ export default function CandidatesPage() {
               {items.map((candidate) => (
                 <TableRow key={candidate.id}>
                   <TableCell>
-                    <Link href={`/candidates/${candidate.id}`} className="font-medium hover:underline">
+                    <Link href={`/candidates/${candidate.id}`} className="table-row-link font-medium hover:underline">
                       {candidate.full_name}
                     </Link>
                     <div className="text-xs text-muted-foreground">{candidate.email}</div>

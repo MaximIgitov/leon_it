@@ -1,71 +1,24 @@
-import fs from "node:fs";
-import path from "node:path";
+import { useState } from "react";
+import Link from "@/lib/router";
+import { ArrowRight, AudioLines, Play } from "lucide-react";
+import { Mascot } from "@/components/brand/mascot";
+import { Button } from "@/components/ui/button";
 
-import { DemoFrame } from "@/components/landing/illustrations";
-import { Section } from "@/components/landing/section";
-
-/*
- * Видеодемо комнаты интервью. Ролик не хранится в репозитории: его пишет
- * Playwright-сценарий кандидата (E2E_VIDEO=1, см. public/demo/README.md) и
- * кладут в public/demo/interview-demo.mp4. Серверный компонент проверяет
- * наличие файла при рендере (для статической страницы — во время сборки) и
- * без него показывает заглушку-постер.
- */
 export const DEMO_VIDEO_SRC = "/demo/interview-demo.mp4";
 export const DEMO_POSTER_SRC = "/demo/poster.svg";
 
-export function demoVideoExists(): boolean {
-  return fs.existsSync(path.join(process.cwd(), "public", ...DEMO_VIDEO_SRC.split("/").filter(Boolean)));
-}
-
-const DEMO_CHAPTERS = ["Ссылка и согласия", "Проверка камеры", "Тренировочный вопрос", "Ответ с таймером", "Завершение"];
-
-export function VideoDemo({ available = demoVideoExists() }: { available?: boolean }) {
-  return (
-    <Section
-      id="demo"
-      eyebrow="Видеодемо"
-      title="Посмотрите, как выглядит интервью"
-      lead="Запись сценария кандидата целиком: от ссылки до «Спасибо, интервью завершено!». Так вы будете знать каждый экран ещё до того, как включите камеру."
-      tone="muted"
-    >
-      <div className="mx-auto max-w-4xl">
-        {available ? (
-          <video
-            controls
-            playsInline
-            preload="metadata"
-            poster={DEMO_POSTER_SRC}
-            aria-label="Демо: как проходит видеоинтервью в LeonIT"
-            className="aspect-video w-full rounded-2xl border bg-black"
-            data-testid="demo-video"
-          >
-            <source src={DEMO_VIDEO_SRC} type="video/mp4" />
-            Ваш браузер не воспроизводит видео. Вы можете{" "}
-            <a href={DEMO_VIDEO_SRC} className="underline">
-              открыть ролик отдельно
-            </a>
-            .
-          </video>
-        ) : (
-          <DemoFrame
-            caption="Демо появится после записи"
-            hint="Ролик записывается автоматически из сквозного сценария кандидата"
-            testId="demo-placeholder"
-          />
-        )}
-        <ul className="mt-6 flex flex-wrap justify-center gap-2" aria-label="Что показано в демо">
-          {DEMO_CHAPTERS.map((chapter, index) => (
-            <li
-              key={chapter}
-              className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs text-muted-foreground"
-            >
-              <span className="font-mono text-primary">{index + 1}</span>
-              {chapter}
-            </li>
-          ))}
-        </ul>
+export function VideoDemo({ available = true }: { available?: boolean }) {
+  const [playing, setPlaying] = useState(false);
+  return <section id="demo" className="landing-section" aria-labelledby="demo-title">
+    <div className="practice-preview">
+      <div className="practice-preview-stage">
+        {playing && available ? <video src={DEMO_VIDEO_SRC} controls autoPlay playsInline className="practice-preview-video" aria-label="Видео: полный сценарий интервью" onError={() => setPlaying(false)} /> : <>
+          <div className="practice-preview-person"><Mascot name="leo" /><span>Леон</span></div>
+          <div className="practice-preview-question"><AudioLines size={25} aria-hidden /><p>Над каким проектом тебе понравилось работать?</p></div>
+          <div className="practice-preview-caption"><span className="mini-wave" aria-hidden><i /><i /><i /><i /><i /></span><span>Пробный вопрос</span>{available && <button onClick={() => setPlaying(true)} aria-label="Посмотреть видео интервью"><Play size={18} fill="currentColor" /></button>}</div>
+        </>}
       </div>
-    </Section>
-  );
+      <div className="practice-preview-copy"><h2 id="demo-title">Попробуй<br />один вопрос</h2><p>Познакомься с Леоном, проверь камеру и запиши пробный ответ.</p><Button size="lg" variant="outline" asChild><Link href="/practice">Начать тренировку <ArrowRight size={19} /></Link></Button><span>Запись останется в твоём браузере.</span></div>
+    </div>
+  </section>;
 }

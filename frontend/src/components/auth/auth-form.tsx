@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useRouter, useSearchParams } from "@/lib/router";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -53,7 +54,7 @@ export function LoginForm() {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-4" noValidate>
+    <form onSubmit={submit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="email">E-mail</Label>
         <Input
@@ -82,7 +83,7 @@ export function LoginForm() {
         </p>
       ) : null}
       <Button type="submit" className="w-full" disabled={pending}>
-        {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
         Войти
       </Button>
       <p className="text-center text-sm text-muted-foreground">
@@ -144,9 +145,9 @@ export function RegisterForm() {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-4" noValidate>
+    <form onSubmit={submit} className="space-y-4">
       {preview ? (
-        <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+        <div className="rounded-lg border bg-secondary/50 p-3 text-sm">
           {preview.valid ? (
             <>
               Вы присоединяетесь к <span className="font-medium">{preview.organization_name}</span>{" "}
@@ -210,7 +211,7 @@ export function RegisterForm() {
         </p>
       ) : null}
       <Button type="submit" className="w-full" disabled={pending || preview?.valid === false}>
-        {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
         {inviteToken ? "Присоединиться" : "Создать аккаунт"}
       </Button>
       <p className="text-center text-sm text-muted-foreground">

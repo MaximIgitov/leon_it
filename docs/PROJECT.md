@@ -77,8 +77,8 @@ API с токенами по областям и документацией; к�
 
 ## Технологии
 
-FastAPI + SQLAlchemy 2 (async) + Alembic, PostgreSQL 16; Next.js 14, TypeScript,
-Tailwind, shadcn/ui; очередь задач в БД и воркер; ffmpeg; OpenAI-совместимый
+FastAPI + SQLAlchemy 2 (async) + Alembic, PostgreSQL 16; TanStack Start, React 19, TypeScript,
+Tailwind, HeroUI 3; очередь задач в БД и воркер; ffmpeg; OpenAI-совместимый
 шлюз к моделям с конфигурацией на роль (AI Tunnel по умолчанию, STT/TTS/LLM);
 Playwright e2e с фейковой камерой; docker compose + Caddy (HTTPS); CI на GitHub
 Actions с self-hosted раннером на стенде. Подробнее — [ARCHITECTURE.md](ARCHITECTURE.md).
