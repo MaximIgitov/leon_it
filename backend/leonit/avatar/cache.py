@@ -1,7 +1,8 @@
 """Кэш клипов аватара — по образцу ``leonit.ai.tts_cache``.
 
-Ключ — хеш от текста вопроса, голоса, языка и имени провайдера: смена любого
-из них даёт новый рендер, а правка текста вопроса инвалидирует старый клип.
+Ключ — хеш от текста вопроса, голоса, языка, имени провайдера и его «варианта»
+(облик и кадр аватара): смена любого из них даёт новый рендер, а правка текста
+вопроса инвалидирует старый клип.
 В хранилище лежит маленький JSON-манифест с результатом рендера, а не сам
 файл: у большинства провайдеров клип живёт на их CDN. Провайдер, который
 кладёт видео к нам, заполняет ``storage_key`` — тогда URL переподписывается
@@ -24,9 +25,20 @@ log = get_logger(__name__)
 _render_locks = KeyLocks()
 
 
-def avatar_cache_key(text: str, voice: str | None, language: str, provider: str) -> str:
-    digest = hashlib.sha256(f"{text}|{voice or ''}|{language}|{provider}".encode()).hexdigest()
+def avatar_cache_key(
+    text: str, voice: str | None, language: str, provider: str, variant: str = ""
+) -> str:
+    """``variant`` — облик и кадр у провайдера (аватар, движок, формат): смена любого из
+    них даёт новый ключ, иначе после переключения аватара отдавались бы старые клипы."""
+    raw = f"{text}|{voice or ''}|{language}|{provider}"
+    if variant:
+        raw += f"|{variant}"
+    digest = hashlib.sha256(raw.encode()).hexdigest()
     return f"avatar/{digest}.json"
+
+
+def _key(provider: AvatarProvider, text: str, voice: str | None, language: str) -> str:
+    return avatar_cache_key(text, voice, language, provider.name, getattr(provider, "variant", ""))
 
 
 async def _read_manifest(storage: Storage, key: str) -> AvatarClip | None:
@@ -54,7 +66,7 @@ async def lookup(
     language: str,
 ) -> AvatarClip | None:
     """Только кэш, без рендера: так комната работает с провайдерами, где рендер долгий."""
-    key = avatar_cache_key(text, voice, language, provider.name)
+    key = _key(provider, text, voice, language)
     if await storage.exists(key):
         return await _read_manifest(storage, key)
     return None
@@ -68,7 +80,7 @@ async def get_or_render(
     language: str,
 ) -> AvatarClip | None:
     """Вернуть клип из кэша или отрендерить; ``None`` — провайдер клип не дал."""
-    key = avatar_cache_key(text, voice, language, provider.name)
+    key = _key(provider, text, voice, language)
     cached = await lookup(storage, provider, text, voice, language)
     if cached is not None:
         return cached

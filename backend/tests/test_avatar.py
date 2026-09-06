@@ -91,6 +91,27 @@ async def test_cache_renders_once_per_text_voice_language(tmp_path: Path) -> Non
     assert len(_render_locks) == 0
 
 
+async def test_cache_key_includes_provider_variant(tmp_path: Path) -> None:
+    """Переключили аватар или кадр — старые клипы не подходят: ключ кэша меняется."""
+    storage = LocalStorage(tmp_path)
+    daphne = StubAvatar(name="stub")
+    daphne.variant = "Daphne|1:1"  # type: ignore[attr-defined]
+    annie = StubAvatar(name="stub")
+    annie.variant = "Annie|16:9"  # type: ignore[attr-defined]
+    first = await get_or_render(storage, daphne, "Вопрос", "nova", "ru")
+    second = await get_or_render(storage, annie, "Вопрос", "nova", "ru")
+    # Общий кэш не сработал: каждый облик отрендерил свой клип.
+    assert first is not None and second is not None
+    assert daphne.calls == 1 and annie.calls == 1
+    assert avatar_cache_key("Вопрос", "nova", "ru", "stub", "Daphne|1:1") != avatar_cache_key(
+        "Вопрос", "nova", "ru", "stub", "Annie|16:9"
+    )
+    # Без варианта ключ прежний: клипы других провайдеров не перерендериваются.
+    assert avatar_cache_key("Вопрос", "nova", "ru", "stub") == avatar_cache_key(
+        "Вопрос", "nova", "ru", "stub", ""
+    )
+
+
 async def test_cache_does_not_store_refusal(tmp_path: Path) -> None:
     storage = LocalStorage(tmp_path)
     provider = StubAvatar(clip=False, name="stub")

@@ -77,6 +77,13 @@ class HeyGenAvatar:
     def enabled(self) -> bool:
         return bool(self.api_key and self.avatar_id and self.voice_id)
 
+    @property
+    def variant(self) -> str:
+        """Облик и кадр: часть ключа кэша клипов (``leonit.avatar.cache``)."""
+        return (
+            f"{self.avatar_id}|{self.voice_id}|{self.engine}|{self.resolution}|{self.aspect_ratio}"
+        )
+
     @classmethod
     def from_settings(cls, settings: Settings) -> HeyGenAvatar:
         return cls(
