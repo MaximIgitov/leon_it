@@ -21,6 +21,9 @@ export type HhConnection = {
   connected_at: string;
   last_synced_at: string | null;
   webhook_url: string | null;
+  /** false — токен подключён без refresh_token и сам не обновится. */
+  token_refreshable?: boolean;
+  expires_at?: string | null;
 };
 
 export type HhStatus = {
@@ -118,6 +121,8 @@ export const hhApi = {
   status: () => apiFetch<HhStatus>("/integrations/hh/status"),
   oauthStart: () => apiFetch<{ url: string }>("/integrations/hh/oauth/start", { method: "POST" }),
   connectDemo: () => apiFetch<HhStatus>("/integrations/hh/connect-demo", { method: "POST" }),
+  connectToken: (body: { access_token: string; refresh_token?: string | null; expires_at?: string | null }) =>
+    apiFetch<HhStatus>("/integrations/hh/connect-token", { method: "POST", body }),
   disconnect: () => apiFetch<HhStatus>("/integrations/hh/disconnect", { method: "POST" }),
   vacancies: () => apiFetch<HhVacancy[]>("/integrations/hh/vacancies"),
   importVacancy: (hhVacancyId: string) =>

@@ -29,6 +29,22 @@ class HhConnectionOut(BaseModel):
     last_synced_at: datetime | None
     # Полный адрес вебхука виден только владельцу.
     webhook_url: str | None
+    # Токен, подключённый без refresh_token (импорт из другого приложения), не
+    # обновляется сам: интерфейс показывает срок и просит вставить новый.
+    token_refreshable: bool = True
+    expires_at: datetime | None = None
+
+
+class HhTokenConnectIn(BaseModel):
+    """Подключение готовым токеном, выданным hh.ru другому приложению того же работодателя.
+
+    Без refresh_token сервис никогда не обновляет пару и не инвалидирует токен у
+    приложения-источника; после истечения срока токен нужно вставить заново.
+    """
+
+    access_token: str = Field(min_length=16, max_length=4096)
+    refresh_token: str | None = Field(default=None, max_length=4096)
+    expires_at: datetime | None = None
 
 
 class HhStatusOut(BaseModel):

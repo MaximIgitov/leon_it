@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -847,3 +847,76 @@ async def test_real_client_sends_idempotent_messages_and_treats_409_as_sent() ->
     assert uuid.UUID(key) and bodies[1]["idempotency_key"] == key
     assert [m.id for m in messages] == ["m1"] and messages[0].author == "applicant"
     assert messages[0].created_at is not None and messages[0].created_at.hour == 10
+
+
+async def test_connect_with_imported_token_never_refreshes(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Готовый токен другого приложения подключается через /me и не обновляется сам."""
+    from leonit.hh.service import HhService
+
+    real = Settings(
+        HH_CLIENT_ID="cid",
+        HH_CLIENT_SECRET="csec",
+        HH_API_BASE="https://api.hh.test",
+        HH_OAUTH_BASE="https://hh.test",
+    )
+    monkeypatch.setattr("leonit.hh.service.get_settings", lambda: real)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/me":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "u-1",
+                    "employer": {"id": "12980144", "name": "Napoleon IT"},
+                    "manager": {"id": "m-7"},
+                },
+            )
+        return httpx.Response(500, json={"description": "unexpected"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        HhService, "_real_client", lambda self, tokens: RealHhClient(real, tokens, http=http)
+    )
+    _, owner = await register(client)
+
+    # Без access_token — 422; чужой/просроченный срок — 422.
+    bad = await client.post(
+        f"{HH}/connect-token", json={"access_token": "short"}, headers=bearer(owner)
+    )
+    assert bad.status_code == 422
+    expired = await client.post(
+        f"{HH}/connect-token",
+        json={"access_token": "imported-access-token-1", "expires_at": "2020-01-01T00:00:00Z"},
+        headers=bearer(owner),
+    )
+    assert expired.status_code == 422
+
+    response = await client.post(
+        f"{HH}/connect-token",
+        json={"access_token": "imported-access-token-1"},
+        headers=bearer(owner),
+    )
+    assert response.status_code == 200, response.text
+    connection = response.json()["connection"]
+    assert connection["status"] == "connected" and connection["mode"] == "real"
+    assert connection["employer_name"] == "Napoleon IT" and connection["employer_id"] == "12980144"
+    assert connection["token_refreshable"] is False
+    assert aware(datetime.fromisoformat(connection["expires_at"])) - utcnow() > timedelta(days=13)
+    # Только /me с нашим токеном; за /token (refresh) клиент не ходил.
+    assert [(r.method, r.url.path) for r in seen] == [("GET", "/me")]
+    assert seen[0].headers["Authorization"] == "Bearer imported-access-token-1"
+    assert "X-Manager-Account-Id" not in seen[0].headers
+
+    org = await _org_id(owner, client)
+    async with get_session_maker()() as session:
+        row = await session.scalar(select(HhConnection).where(HhConnection.organization_id == org))
+        assert row is not None
+        assert get_secret_box().decrypt(row.access_token_enc) == "imported-access-token-1"
+        # Без refresh_token поле пустое: клиент не пойдёт обновлять пару.
+        assert row.refresh_token_enc == ""
+        assert row.manager_account_id == "m-7"
+    await http.aclose()

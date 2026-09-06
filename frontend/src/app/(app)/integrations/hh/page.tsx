@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ExternalLink,
+  KeyRound,
   Loader2,
   MessageSquareText,
   Plug,
@@ -103,6 +104,91 @@ function useErrorToast() {
 }
 
 // ------------------------------------------------------------ подключение
+
+/*
+ * Готовый токен: у работодателя уже есть рабочая авторизация hh.ru в другом
+ * приложении, а повторный OAuth выдал бы новый токен и сломал старую. Токен
+ * вставляется один раз, уходит по HTTPS, хранится шифрованным и не обновляется
+ * сервисом — refresh инвалидировал бы пару у приложения-источника.
+ */
+function TokenConnectForm({ onChange, compact = false }: { onChange: (next: HhStatus) => void; compact?: boolean }) {
+  const { toast } = useToast();
+  const showError = useErrorToast();
+  const [open, setOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const [expires, setExpires] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const submit = async () => {
+    setPending(true);
+    try {
+      const expiresAt = expires ? new Date(`${expires}T23:59:59`).toISOString() : null;
+      onChange(await hhApi.connectToken({ access_token: token.trim(), expires_at: expiresAt }));
+      setToken("");
+      setExpires("");
+      setOpen(false);
+      toast({ title: "HH.ru подключён готовым токеном" });
+    } catch (error) {
+      showError(error, "HH не принял токен");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant={compact ? "ghost" : "outline"} size="sm" onClick={() => setOpen(true)}>
+        <KeyRound className="mr-2 h-4 w-4" />
+        {compact ? "Вставить новый токен" : "У меня уже есть токен из другого приложения"}
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div>
+        <p className="font-medium">Подключить готовым токеном</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Если авторизация hh.ru уже выполнена в другом приложении того же работодателя, вставьте его
+          access_token: повторный вход через hh не понадобится, и токен источника останется рабочим.
+          Сервис не обновляет такой токен сам — по истечении срока вставьте новый.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="hh-token">access_token</Label>
+        <Textarea
+          id="hh-token"
+          rows={3}
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="Вставьте токен целиком"
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono text-xs"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="hh-token-expires">Действует до (необязательно)</Label>
+        <Input
+          id="hh-token-expires"
+          type="date"
+          value={expires}
+          onChange={(event) => setExpires(event.target.value)}
+          className="max-w-[220px]"
+        />
+        <p className="text-xs text-muted-foreground">Если не знаете — оставьте пустым: hh выдаёт токен на 14 дней.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={submit} disabled={pending || token.trim().length < 16}>
+          {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+          Подключить
+        </Button>
+        <Button variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
+          Отмена
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function ConnectionCard({
   status,
@@ -213,6 +299,14 @@ function ConnectionCard({
                 <dd>каждые {status.sync_interval_minutes} мин</dd>
               </div>
             </dl>
+            {connection.mode === "real" && connection.token_refreshable === false ? (
+              <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                Подключено готовым токеном без refresh_token: сервис не обновляет его сам, чтобы не
+                сломать авторизацию в приложении-источнике. Действует до{" "}
+                <span className="font-medium text-foreground">{formatDateTime(connection.expires_at ?? null)}</span>;
+                когда истечёт — вставьте новый токен ниже.
+              </p>
+            ) : null}
             {connection.last_error ? (
               <p className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
                 {connection.last_error}
@@ -263,22 +357,26 @@ function ConnectionCard({
                 </AlertDialog>
               ) : null}
             </div>
+            {connection.mode === "real" && manages ? <TokenConnectForm onChange={onChange} compact /> : null}
           </>
         ) : manages ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={connect} disabled={pending !== null}>
-              {pending === "connect" ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Plug className="mr-2 h-4 w-4" />
-              )}
-              {demo ? "Подключить демо-аккаунт" : "Подключить HH.ru"}
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              {demo
-                ? "Появятся три вакансии и пять откликов со сценарными ответами кандидатов."
-                : "Откроется страница авторизации hh.ru; после согласия вы вернётесь сюда."}
-            </p>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={connect} disabled={pending !== null}>
+                {pending === "connect" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plug className="mr-2 h-4 w-4" />
+                )}
+                {demo ? "Подключить демо-аккаунт" : "Подключить HH.ru"}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {demo
+                  ? "Появятся три вакансии и пять откликов со сценарными ответами кандидатов."
+                  : "Откроется страница авторизации hh.ru; после согласия вы вернётесь сюда."}
+              </p>
+            </div>
+            {!demo ? <TokenConnectForm onChange={onChange} /> : null}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">

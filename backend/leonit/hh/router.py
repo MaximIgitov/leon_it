@@ -14,6 +14,7 @@ from leonit.hh.schemas import (
     DialogOut,
     DialogSettings,
     HhStatusOut,
+    HhTokenConnectIn,
     HhVacancyOut,
     LinkVacancyIn,
     NegotiationOut,
@@ -66,6 +67,21 @@ async def oauth_callback(
 async def connect_demo(actor: CurrentActor, session: DbSession) -> HhStatusOut:
     service = HhService(session)
     await service.connect_demo(actor)
+    return await service.status(actor)
+
+
+@router.post("/connect-token", response_model=HhStatusOut)
+async def connect_token(
+    payload: HhTokenConnectIn, actor: CurrentActor, session: DbSession
+) -> HhStatusOut:
+    """Подключение готовым токеном (без OAuth): токен не логируется и хранится шифрованным."""
+    service = HhService(session)
+    await service.connect_with_token(
+        actor,
+        access_token=payload.access_token,
+        refresh_token=payload.refresh_token,
+        expires_at=payload.expires_at,
+    )
     return await service.status(actor)
 
 
