@@ -48,6 +48,10 @@ test("рекрутер работает с заключением, достов�
     .poll(async () => (await getInterview(seed)).status, { timeout: 60_000 })
     .toBe("evaluated");
 
+  // Без сессии кабинет уводит на вход и запоминает, куда вернуться.
+  await page.goto(`/vacancies/${seed.vacancyId}`);
+  await expect(page).toHaveURL(/\/login\?next=%2Fvacancies%2F/);
+
   await login(page, seed.email, seed.password);
 
   // Ранжирование по вакансии: кандидат с баллом и рекомендацией.

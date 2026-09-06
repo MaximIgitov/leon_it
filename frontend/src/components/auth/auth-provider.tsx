@@ -101,7 +101,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !me) {
+    // Пока роутер грузит чанк /login, эта оболочка ещё смонтирована, а pathname
+    // уже /login — без проверки второй replace затирал бы адрес возврата.
+    if (!loading && !me && !pathname.startsWith("/login")) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
   }, [loading, me, router, pathname]);
