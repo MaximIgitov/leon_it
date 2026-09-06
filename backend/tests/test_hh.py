@@ -758,7 +758,7 @@ async def test_real_client_refreshes_on_401_and_persists_tokens() -> None:
     assert (
         employer.id == "e1" and employer.name == "ООО Тест" and employer.manager_account_id == "m1"
     )
-    assert [r.url.path for r in seen] == ["/me", "/token", "/me"]
+    assert [r.url.path for r in seen] == ["/me", "/token", "/me", "/manager_accounts/mine"]
     assert saved and saved[0].access_token == "access-2" and saved[0].refresh_token == "refresh-2"
     assert client.tokens.access_token == "access-2"
 
@@ -767,7 +767,7 @@ async def test_real_client_refreshes_on_401_and_persists_tokens() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         client = RealHhClient(_settings(), _tokens(expired=True), http=http)
         await client.me()
-    assert [r.url.path for r in seen] == ["/token", "/me"]
+    assert [r.url.path for r in seen] == ["/token", "/me", "/manager_accounts/mine"]
 
     def revoked(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, json={"errors": [{"type": "oauth", "value": "token_revoked"}]})
@@ -906,8 +906,10 @@ async def test_connect_with_imported_token_never_refreshes(
     assert connection["employer_name"] == "Napoleon IT" and connection["employer_id"] == "12980144"
     assert connection["token_refreshable"] is False
     assert aware(datetime.fromisoformat(connection["expires_at"])) - utcnow() > timedelta(days=13)
-    # Только /me с нашим токеном; за /token (refresh) клиент не ходил.
-    assert [(r.method, r.url.path) for r in seen] == [("GET", "/me")]
+    # Только /me и список аккаунтов с нашим токеном; за /token (refresh) клиент не ходил.
+    paths = [r.url.path for r in seen]
+    assert paths[0] == "/me" and "/token" not in paths
+    assert set(paths) == {"/me", "/manager_accounts/mine"}
     assert seen[0].headers["Authorization"] == "Bearer imported-access-token-1"
     assert "X-Manager-Account-Id" not in seen[0].headers
 
@@ -920,3 +922,34 @@ async def test_connect_with_imported_token_never_refreshes(
         assert row.refresh_token_enc == ""
         assert row.manager_account_id == "m-7"
     await http.aclose()
+
+
+async def test_me_prefers_manager_account_from_mine_list() -> None:
+    """X-Manager-Account-Id — это id аккаунта из /manager_accounts/mine, а не manager.id."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/me":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "194470745",
+                    "employer": {"id": "12980144", "name": "ООО Тест"},
+                    "manager": {"id": "77"},
+                },
+            )
+        if request.url.path == "/manager_accounts/mine":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "555", "employer": {"id": "other", "name": "Чужой"}},
+                        {"id": "194470745", "employer": {"id": "12980144", "name": "ООО Тест"}},
+                    ]
+                },
+            )
+        return httpx.Response(404, json={"description": "not found"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        employer = await RealHhClient(_settings(), _tokens(), http=http).me()
+    assert employer.manager_account_id == "194470745"
+    assert employer.id == "12980144" and employer.user_id == "194470745"

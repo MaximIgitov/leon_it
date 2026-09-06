@@ -425,11 +425,28 @@ class RealHhClient:
         data = await self.request("GET", "/me")
         employer = (data or {}).get("employer") or {}
         manager = (data or {}).get("manager") or {}
+        employer_id = str(employer.get("id") or "")
+        # Заголовок X-Manager-Account-Id ждёт идентификатор аккаунта из
+        # /manager_accounts/mine, а не manager.id из /me: с последним hh отвечает
+        # 403 manager_extra_account_not_found. Берём аккаунт этого работодателя,
+        # без ответа списка — оставляем manager.id как раньше.
+        account_id: str | None = str(manager["id"]) if manager.get("id") else None
+        if employer_id:
+            try:
+                mine = await self.request("GET", "/manager_accounts/mine")
+            except HhError:
+                mine = None
+            items = (mine or {}).get("items") if isinstance(mine, dict) else None
+            for item in items or []:
+                account_employer = (item or {}).get("employer") or {}
+                if str(account_employer.get("id") or "") == employer_id and item.get("id"):
+                    account_id = str(item["id"])
+                    break
         return HhEmployer(
-            id=str(employer.get("id") or ""),
+            id=employer_id,
             name=str(employer.get("name") or ""),
             user_id=str((data or {}).get("id") or ""),
-            manager_account_id=str(manager["id"]) if manager.get("id") else None,
+            manager_account_id=account_id,
         )
 
     async def employer_vacancies(self, employer_id: str) -> list[HhVacancy]:
