@@ -1,13 +1,106 @@
 import { Badge } from "@/components/ui/badge";
 import type { AssistantAction, Proposal } from "@/lib/api/assistant";
-import type { QuestionDraft, RubricCompetency } from "@/lib/api/vacancies";
+import { LEVEL_LABELS, type QuestionDraft, type RubricCompetency, type VacancyLevel } from "@/lib/api/vacancies";
 
 /*
- * Содержимое карточек ассистента. Предложение (рубрика, вопросы, приглашение,
- * решение) показываем в человеческом виде до подтверждения — иначе пользователь
- * подтверждал бы JSON. Результаты инструментов-списков — компактными таблицами;
- * всё остальное остаётся доступным через «Показать данные».
+ * Содержимое карточек ассистента. Предложение (вакансия, рубрика, вопросы,
+ * приглашение, решение) показываем в человеческом виде до подтверждения — иначе
+ * пользователь подтверждал бы JSON. Результаты инструментов-списков — компактными
+ * таблицами; сырые данные наружу не показываем — их пересказывает сам ассистент.
  */
+
+/** Ссылка на то, что изменил или предлагает изменить ассистент. */
+export type ActionLink = { href: string; label: string };
+
+function str(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function vacancyHref(id: string, tab?: string): string {
+  return tab ? `/vacancies/${id}?tab=${tab}` : `/vacancies/${id}`;
+}
+
+const TOOL_TABS: Record<string, string> = {
+  generate_questions: "questions",
+  review_questions: "questions",
+  generate_rubric: "rubric",
+  ranking: "ranking",
+  vacancy_summary: "ranking",
+  invite_candidate: "candidates",
+};
+
+/** Куда вести после подтверждения предложения: карточка вакансии или интервью. */
+export function proposalHref(proposal: Proposal): ActionLink | null {
+  const params = proposal.params as Record<string, unknown>;
+  const vacancyId = str(params.vacancy_id);
+  const interviewId = str(params.interview_id);
+  if (interviewId && vacancyId) {
+    return { href: `/vacancies/${vacancyId}/interviews/${interviewId}`, label: "Открыть карточку кандидата" };
+  }
+  if (!vacancyId) return null;
+  switch (proposal.action) {
+    case "replace_questions":
+      return { href: vacancyHref(vacancyId, "questions"), label: "Открыть вопросы" };
+    case "update_rubric":
+      return { href: vacancyHref(vacancyId, "rubric"), label: "Открыть рубрику" };
+    case "invite":
+      return { href: vacancyHref(vacancyId, "candidates"), label: "Открыть кандидатов" };
+    default:
+      return { href: vacancyHref(vacancyId), label: "Открыть вакансию" };
+  }
+}
+
+/** Куда вести по выполненному инструменту: страница, которую он прочитал или изменил. */
+export function actionHref(action: AssistantAction): ActionLink | null {
+  if (action.kind !== "done") return null;
+  const params = action.params as Record<string, unknown>;
+  const result = action.result && typeof action.result === "object" ? (action.result as Record<string, unknown>) : {};
+  const vacancyId = str(params.vacancy_id) ?? (action.tool === "get_vacancy" ? str(result.id) : null);
+  const interviewId = str(params.interview_id) ?? str(result.interview_id);
+  const candidateId = str(params.candidate_id);
+  if (interviewId && (vacancyId || str(result.vacancy_id))) {
+    return {
+      href: `/vacancies/${vacancyId ?? str(result.vacancy_id)}/interviews/${interviewId}`,
+      label: "Открыть карточку кандидата",
+    };
+  }
+  if (candidateId) return { href: `/candidates/${candidateId}`, label: "Открыть кандидата" };
+  if (vacancyId) {
+    const tab = TOOL_TABS[action.tool];
+    const labels: Record<string, string> = {
+      questions: "Открыть вопросы",
+      rubric: "Открыть рубрику",
+      ranking: "Открыть рейтинг",
+      candidates: "Открыть кандидатов",
+    };
+    return { href: vacancyHref(vacancyId, tab), label: tab ? labels[tab] : "Открыть вакансию" };
+  }
+  return null;
+}
+
+const PROPOSAL_BUTTONS: Record<string, { label: string; destructive?: boolean }> = {
+  create_vacancy: { label: "Создать черновик" },
+  publish: { label: "Опубликовать" },
+  archive: { label: "Отправить в архив", destructive: true },
+  update_rubric: { label: "Заменить рубрику" },
+  replace_questions: { label: "Заменить вопросы" },
+};
+
+/** Кнопка подтверждения называет действие, а не абстрактное «Подтвердить». */
+export function proposalButton(proposal: Proposal): { label: string; destructive: boolean } {
+  const params = proposal.params as Record<string, unknown>;
+  if (proposal.action === "invite") {
+    return { label: params.send_email === false ? "Добавить приглашение" : "Отправить приглашение", destructive: false };
+  }
+  if (proposal.action === "decide") {
+    const decision = String(params.decision ?? "");
+    if (decision === "reject") return { label: "Сохранить отказ", destructive: true };
+    if (decision === "hold") return { label: "Поставить на паузу", destructive: false };
+    return { label: "Отправить дальше", destructive: false };
+  }
+  const known = PROPOSAL_BUTTONS[proposal.action];
+  return { label: known?.label ?? "Подтвердить", destructive: Boolean(known?.destructive) };
+}
 
 const DECISION_LABELS: Record<string, string> = {
   advance: "Дальше",
@@ -52,6 +145,7 @@ export function statusLabel(value: unknown): string {
 }
 
 const PROPOSAL_CAPTIONS: Record<string, string> = {
+  create_vacancy: "Появится черновик вакансии; опубликовать её можно будет позже",
   invite: "Кандидату уйдёт письмо с приглашением",
   decide: "Решение сохранится в карточке кандидата",
   publish: "Вакансия откроется для приглашений",
@@ -202,6 +296,36 @@ function QuestionsPreview({
 export function ProposalPreview({ proposal, result }: { proposal: Proposal; result?: unknown }) {
   const params = proposal.params as Record<string, unknown>;
   switch (proposal.action) {
+    case "create_vacancy": {
+      const level = str(params.level) as VacancyLevel | null;
+      const skills = asArray<string>(params.skills).filter((item) => typeof item === "string");
+      return (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">Название</dt>
+          <dd className="font-medium">{str(params.title) ?? "—"}</dd>
+          <dt className="text-muted-foreground">Уровень</dt>
+          <dd>{level ? (LEVEL_LABELS[level] ?? level) : "не указан"}</dd>
+          <dt className="text-muted-foreground">Навыки</dt>
+          <dd>
+            {skills.length ? (
+              <span className="flex flex-wrap gap-1">
+                {skills.map((skill) => (
+                  <Badge key={skill} variant="outline" className="font-normal">
+                    {skill}
+                  </Badge>
+                ))}
+              </span>
+            ) : (
+              "—"
+            )}
+          </dd>
+          <dt className="text-muted-foreground">Описание</dt>
+          <dd className="whitespace-pre-line">{clip(params.description, 700) || "—"}</dd>
+          <dt className="text-muted-foreground">Требования</dt>
+          <dd className="whitespace-pre-line">{clip(params.requirements, 700) || "—"}</dd>
+        </dl>
+      );
+    }
     case "update_rubric":
       return <RubricPreview rubric={asArray<RubricCompetency>(params.rubric)} />;
     case "replace_questions": {
@@ -278,11 +402,10 @@ export function ProposalPreview({ proposal, result }: { proposal: Proposal; resu
   }
 }
 
-/** Результат выполненного инструмента: таблица или список для известных, JSON — для остальных. */
+/** Результат выполненного инструмента: таблица или список для известных, ничего — для остальных. */
 export function ActionResult({ action }: { action: AssistantAction }) {
   if (action.kind !== "done" || action.result === null || action.result === undefined) return null;
   const result = action.result;
-  const json = JSON.stringify(result, null, 2);
   let view: React.ReactNode = null;
   switch (action.tool) {
     case "search_knowledge": {
@@ -408,17 +531,7 @@ export function ActionResult({ action }: { action: AssistantAction }) {
     default:
       view = null;
   }
-  return (
-    <div className="mt-2 space-y-2">
-      {view}
-      <details>
-        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-          Показать данные
-        </summary>
-        <pre className="thin-scrollbar mt-2 max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-[11px] leading-snug">
-          {json.length > 4000 ? `${json.slice(0, 4000)}…` : json}
-        </pre>
-      </details>
-    </div>
-  );
+  // Сырой JSON пользователю не нужен: что прочитал инструмент, ассистент пересказывает сам.
+  if (!view) return null;
+  return <div className="mt-2 space-y-2">{view}</div>;
 }

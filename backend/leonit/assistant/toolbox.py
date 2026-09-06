@@ -614,6 +614,9 @@ class ServiceToolbox:
         )
 
     async def create_vacancy(self, args: CreateVacancyArgs) -> ToolResult:
+        # Новая вакансия — крупное действие: показываем содержимое и ждём подтверждения,
+        # а не создаём молча. Проверка прав и валидация — здесь, создание — по кнопке.
+        authorize(self.actor, "vacancy.write")
         payload = VacancyCreate(
             title=args.title,
             description=args.description,
@@ -621,12 +624,19 @@ class ServiceToolbox:
             skills=args.skills,
             level=args.level,
         )
-        vacancy = await VacancyService(self.session).create(self.actor, payload)
         return ToolResult(
-            "done",
+            "proposed",
             "create_vacancy",
-            summary=f"Создан черновик вакансии «{vacancy.title}»",
-            data=_vacancy_brief(vacancy),
+            summary=f"Черновик вакансии «{payload.title}» ждёт подтверждения",
+            proposal={
+                "action": "create_vacancy",
+                "params": payload.model_dump(mode="json"),
+                "summary": (
+                    f"Создать черновик вакансии «{payload.title}»"
+                    + (f", уровень {payload.level}" if payload.level else "")
+                    + (f", навыки: {', '.join(payload.skills[:6])}" if payload.skills else "")
+                ),
+            },
         )
 
     async def generate_questions(self, args: GenerateQuestionsArgs) -> ToolResult:
@@ -1090,6 +1100,8 @@ class ServiceToolbox:
                 "action": "decide",
                 "params": {
                     "interview_id": str(interview.id),
+                    # vacancy_id нужен интерфейсу для ссылки на карточку после подтверждения.
+                    "vacancy_id": str(interview.vacancy_id),
                     "decision": args.decision,
                     "note": args.note.strip(),
                 },

@@ -254,7 +254,13 @@ export default function InvitationPage() {
   }
 
   if (invitation && devices && step === "practice") {
-    content = <PracticeQuestion stream={devices.stream} onDone={onPracticeDone} />;
+    content = (
+      <PracticeQuestion
+        stream={devices.stream}
+        onDone={onPracticeDone}
+        mode={invitation.interview_mode ?? "live"}
+      />
+    );
   }
   if (invitation && devices && step === "room") {
     content = (

@@ -483,3 +483,23 @@ async def test_heygen_balance_registry_and_availability(tmp_path: Path) -> None:
     assert avatar_available(Settings(AVATAR_ENABLED=True, AVATAR_PROVIDER="heygen")) is False
     assert avatar_available(Settings(AVATAR_ENABLED=True)) is False
     assert avatar_available(Settings(AVATAR_PROVIDER="heygen", AVATAR_HEYGEN_API_KEY="k")) is False
+
+
+async def test_new_vacancy_enables_avatar_when_provider_configured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Аватар включён по умолчанию, когда провайдер настроен; без него — выключен."""
+    from leonit.avatar import registry as avatar_registry
+
+    _, owner = await register(client)
+    plain = await client.post(
+        "/api/vacancies", json={"title": "Без провайдера"}, headers=bearer(owner)
+    )
+    assert plain.json()["settings"]["avatar_enabled"] is False
+
+    monkeypatch.setattr(get_settings(), "AVATAR_ENABLED", True)
+    monkeypatch.setattr(avatar_registry, "get_avatar_provider", lambda settings=None: StubAvatar())
+    with_avatar = await client.post(
+        "/api/vacancies", json={"title": "С провайдером"}, headers=bearer(owner)
+    )
+    assert with_avatar.json()["settings"]["avatar_enabled"] is True

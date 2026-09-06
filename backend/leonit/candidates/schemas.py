@@ -124,6 +124,12 @@ class InterviewOut(BaseModel):
     decision: str | None
     current_question_index: int
     question_count: int | None
+    # Итог заключения — чтобы список кандидатов был рабочим без перехода в карточку.
+    fit_score: float | None = None
+    recommendation: str | None = None
+    confidence: float | None = None
+    quotes_found: int | None = None
+    quotes_total: int | None = None
     # Показывается один раз — при создании или повторной выдаче ссылки.
     link: str | None = None
 

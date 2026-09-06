@@ -179,10 +179,13 @@ export function AppShell({
   children,
   header,
   sidebarFooter,
+  rightInset = 0,
 }: {
   children: React.ReactNode;
   header?: React.ReactNode;
   sidebarFooter?: SidebarFooter;
+  /** Отступ справа под пристыкованную панель (ассистент), px; действует от `lg`. */
+  rightInset?: number;
 }) {
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(false);
@@ -225,7 +228,10 @@ export function AppShell({
         </aside>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className="flex min-w-0 flex-1 flex-col transition-[padding] duration-200 lg:pr-[var(--right-inset)]"
+        style={{ "--right-inset": `${rightInset}px` } as React.CSSProperties}
+      >
         <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
           {isMobile && (
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

@@ -48,6 +48,12 @@ export type Interview = {
   decision: string | null;
   current_question_index: number;
   question_count: number | null;
+  /** Итог заключения, когда оно готово. */
+  fit_score?: number | null;
+  recommendation?: string | null;
+  confidence?: number | null;
+  quotes_found?: number | null;
+  quotes_total?: number | null;
   link: string | null;
 };
 

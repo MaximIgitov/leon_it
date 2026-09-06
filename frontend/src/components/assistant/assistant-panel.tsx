@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowUpRight,
   Check,
   CheckCircle2,
   History,
@@ -15,15 +17,24 @@ import {
   Sparkles,
   Trash2,
   Wrench,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { ActionResult, ProposalPreview, proposalCaption } from "@/components/assistant/action-views";
+import {
+  ActionResult,
+  ProposalPreview,
+  actionHref,
+  proposalButton,
+  proposalCaption,
+  proposalHref,
+  type ActionLink,
+} from "@/components/assistant/action-views";
+import { ASSISTANT_DOCK_WIDTH, useAssistantDock } from "@/components/assistant/dock";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -38,14 +49,16 @@ import {
 import { interviewsApi } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
 import { reportsApi, type Decision } from "@/lib/api/reports";
-import { vacanciesApi, type QuestionDraft, type RubricCompetency } from "@/lib/api/vacancies";
+import { vacanciesApi, type QuestionDraft, type RubricCompetency, type VacancyLevel } from "@/lib/api/vacancies";
 import { cn } from "@/lib/utils";
 
 /*
- * Ассистент в контексте страницы: выдвижная панель справа. Состояние живёт в
- * родителе, а не в содержимом Sheet — закрытие панели не обрывает стрим и не
- * теряет черновик. Необратимые действия ассистент только предлагает: кнопка
- * «Подтвердить» вызывает обычный продуктовый API, а не ручку ассистента.
+ * Ассистент в контексте страницы: панель пристыкована справа и не перекрывает
+ * страницу — контент сдвигается (см. AssistantDockProvider), и предложение можно
+ * сверить с тем, что на экране. Состояние диалога живёт в компоненте, а не в
+ * панели: закрытие не обрывает стрим и не теряет черновик. Крупные и необратимые
+ * действия ассистент только предлагает: в карточке видно содержимое, кнопка
+ * называет действие и вызывает обычный продуктовый API, а не ручку ассистента.
  */
 
 type Draft = { text: string; actions: AssistantAction[]; running: string[] };
@@ -71,10 +84,26 @@ function proposalKey(proposal: Proposal): string {
   return JSON.stringify([proposal.action, proposal.params]);
 }
 
+type Executed = { summary: string; link: ActionLink | null };
+
 /** Подтверждение предложения — через продуктовый API соответствующей области. */
-async function executeProposal(proposal: Proposal): Promise<string> {
+async function executeProposal(proposal: Proposal): Promise<Executed> {
   const params = proposal.params as Record<string, never>;
+  const link = proposalHref(proposal);
   switch (proposal.action) {
+    case "create_vacancy": {
+      const vacancy = await vacanciesApi.create({
+        title: params.title,
+        description: params.description ?? "",
+        requirements: params.requirements ?? "",
+        skills: (params.skills as string[] | undefined) ?? [],
+        level: (params.level as VacancyLevel | null | undefined) ?? null,
+      });
+      return {
+        summary: `Черновик вакансии «${vacancy.title}» создан.`,
+        link: { href: `/vacancies/${vacancy.id}`, label: "Открыть вакансию" },
+      };
+    }
     case "invite": {
       const interview = await interviewsApi.invite({
         vacancy_id: params.vacancy_id,
@@ -82,48 +111,70 @@ async function executeProposal(proposal: Proposal): Promise<string> {
         email: params.email,
         send_email: params.send_email ?? true,
       });
-      return interview.link
-        ? `Приглашение отправлено. Ссылка: ${interview.link}`
-        : "Приглашение отправлено.";
+      return {
+        summary: interview.link ? `Приглашение отправлено. Ссылка: ${interview.link}` : "Приглашение отправлено.",
+        link: {
+          href: `/vacancies/${interview.vacancy_id}/interviews/${interview.id}`,
+          label: "Открыть приглашение",
+        },
+      };
     }
     case "publish":
       await vacanciesApi.publish(params.vacancy_id);
-      return "Вакансия опубликована.";
+      return { summary: "Вакансия опубликована.", link };
     case "archive":
       await vacanciesApi.archive(params.vacancy_id);
-      return "Вакансия отправлена в архив.";
+      return { summary: "Вакансия отправлена в архив.", link };
     case "decide":
       await reportsApi.decide(params.interview_id, {
         decision: params.decision as Decision,
         note: params.note ?? "",
       });
-      return "Решение сохранено.";
+      return { summary: "Решение сохранено.", link };
     case "replace_questions":
       await vacanciesApi.replaceQuestions(params.vacancy_id, params.questions as QuestionDraft[]);
-      return "Вопросы вакансии обновлены.";
+      return { summary: "Вопросы вакансии обновлены.", link };
     case "update_rubric":
       await vacanciesApi.update(params.vacancy_id, {
         rubric: params.rubric as RubricCompetency[],
       });
-      return "Рубрика вакансии обновлена.";
+      return { summary: "Рубрика вакансии обновлена.", link };
     default:
       throw new Error(`Неизвестное действие: ${proposal.action}`);
   }
 }
 
+function LinkButton({ link }: { link: ActionLink }) {
+  return (
+    <Button asChild variant="outline" size="sm">
+      <Link href={link.href}>
+        {link.label}
+        <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+      </Link>
+    </Button>
+  );
+}
+
 function ActionCard({
   action,
   confirmed,
+  confirmedLink,
+  dismissed,
   onConfirm,
+  onDismiss,
   actionRef,
 }: {
   action: AssistantAction;
   confirmed: boolean;
+  confirmedLink: ActionLink | null;
+  dismissed: boolean;
   onConfirm?: (proposal: Proposal, ref: ActionRef) => Promise<void>;
+  onDismiss?: (proposal: Proposal) => void;
   actionRef: ActionRef;
 }) {
   const [pending, setPending] = useState(false);
   const proposal = action.kind === "proposed" ? action.proposal : null;
+  const doneLink = actionHref(action);
   const icon =
     action.kind === "error" ? (
       <AlertCircle className="h-4 w-4 text-destructive" />
@@ -132,23 +183,19 @@ function ActionCard({
     ) : (
       <CheckCircle2 className="h-4 w-4 text-success" />
     );
+  const button = proposal ? proposalButton(proposal) : null;
   return (
     <div
       className={cn(
         "rounded-lg border bg-card p-3 text-sm",
         action.kind === "error" && "border-destructive/40",
-        action.kind === "proposed" && "border-primary/40",
+        action.kind === "proposed" && !dismissed && "border-primary/40",
       )}
     >
       <div className="flex items-start gap-2">
         <span className="mt-0.5 shrink-0">{icon}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{toolLabel(action.tool)}</span>
-            <Badge variant="outline" className="font-mono text-[10px] font-normal">
-              {action.tool}
-            </Badge>
-          </div>
+          <span className="font-medium">{toolLabel(action.tool)}</span>
           {action.summary ? (
             <p className={cn("mt-1 text-muted-foreground", action.kind === "error" && "text-destructive")}>
               {action.summary}
@@ -156,40 +203,58 @@ function ActionCard({
           ) : null}
         </div>
       </div>
-      {proposal ? (
-        <div className="mt-3 rounded-md bg-primary/5 p-3">
+      {proposal && button ? (
+        <div className={cn("mt-3 rounded-md p-3", dismissed ? "bg-muted/60" : "bg-primary/5")}>
           <p className="text-sm">{proposal.summary}</p>
           <div className="mt-2">
             <ProposalPreview proposal={proposal} result={action.result} />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {confirmed ? (
-              <Badge className="gap-1">
-                <Check className="h-3 w-3" /> Выполнено
-              </Badge>
+              <>
+                <Badge className="gap-1">
+                  <Check className="h-3 w-3" /> Выполнено
+                </Badge>
+                {confirmedLink ? <LinkButton link={confirmedLink} /> : null}
+              </>
+            ) : dismissed ? (
+              <Badge variant="secondary">Отклонено</Badge>
             ) : (
-              <Button
-                size="sm"
-                disabled={pending || !onConfirm}
-                onClick={async () => {
-                  if (!onConfirm) return;
-                  setPending(true);
-                  try {
-                    await onConfirm(proposal, actionRef);
-                  } finally {
-                    setPending(false);
-                  }
-                }}
-              >
-                {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Подтвердить
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant={button.destructive ? "destructive" : "default"}
+                  disabled={pending || !onConfirm}
+                  onClick={async () => {
+                    if (!onConfirm) return;
+                    setPending(true);
+                    try {
+                      await onConfirm(proposal, actionRef);
+                    } finally {
+                      setPending(false);
+                    }
+                  }}
+                >
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  {button.label}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={pending || !onDismiss} onClick={() => onDismiss?.(proposal)}>
+                  Отклонить
+                </Button>
+              </>
             )}
-            <span className="text-xs text-muted-foreground">{proposalCaption(proposal)}</span>
           </div>
+          {!confirmed && !dismissed ? (
+            <p className="mt-2 text-xs text-muted-foreground">{proposalCaption(proposal)}</p>
+          ) : null}
         </div>
       ) : null}
       <ActionResult action={action} />
+      {doneLink ? (
+        <div className="mt-2">
+          <LinkButton link={doneLink} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -226,10 +291,10 @@ function formatWhen(value: string): string {
   });
 }
 
-function AssistantSheet() {
+function AssistantDock() {
   const pathname = usePathname();
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, pending: pendingOpen, takePending } = useAssistantDock();
   const [view, setView] = useState<"chat" | "threads">("chat");
   const [threads, setThreads] = useState<AssistantThread[] | null>(null);
   const [placeholders, setPlaceholders] = useState<string[]>([]);
@@ -239,9 +304,12 @@ function AssistantSheet() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
-  const [confirmed, setConfirmed] = useState<Set<string>>(() => new Set());
+  const [confirmed, setConfirmed] = useState<Map<string, ActionLink | null>>(() => new Map());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sendRef = useRef<(text: string) => Promise<void>>(async () => undefined);
 
   // Справочники — один раз при первом открытии.
   useEffect(() => {
@@ -261,6 +329,29 @@ function AssistantSheet() {
   }, [messages, draft, view, open, loadingMessages]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Панель открыли с подсказкой (кнопка «Собрать с ИИ»): подставляем или сразу отправляем.
+  useEffect(() => {
+    if (!open || !pendingOpen) return;
+    const detail = takePending();
+    if (!detail?.prompt) return;
+    setView("chat");
+    if (detail.send) {
+      void sendRef.current(detail.prompt);
+    } else {
+      setInput(detail.prompt);
+      window.setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [open, pendingOpen, takePending]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, setOpen]);
 
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.role !== "tool"),
@@ -413,13 +504,14 @@ function AssistantSheet() {
       setStreaming(false);
     }
   };
+  sendRef.current = send;
 
   const confirm = async (proposal: Proposal, ref: ActionRef) => {
     try {
-      const summary = await executeProposal(proposal);
-      setConfirmed((keys) => new Set(keys).add(proposalKey(proposal)));
+      const executed = await executeProposal(proposal);
+      setConfirmed((links) => new Map(links).set(proposalKey(proposal), executed.link));
       announceDataChanged(proposal);
-      toast({ title: "Готово", description: summary });
+      toast({ title: "Готово", description: executed.summary });
       if (ref && threadId) {
         // Отметка хранится в сообщении: после перезагрузки кнопка не вернётся.
         const updated = await assistantApi.confirmAction(threadId, ref.messageId, ref.index).catch(() => null);
@@ -430,34 +522,49 @@ function AssistantSheet() {
     }
   };
 
+  const dismiss = (proposal: Proposal) => {
+    setDismissed((keys) => new Set(keys).add(proposalKey(proposal)));
+  };
+
   const activeThread = threads?.find((item) => item.id === threadId) ?? null;
 
   const renderActions = (actions: AssistantAction[], prefix: string, messageId: string | null) =>
     actions.length ? (
       <div className="space-y-2">
-        {actions.map((action, index) => (
-          <ActionCard
-            key={`${prefix}-${index}`}
-            action={action}
-            confirmed={Boolean(
-              action.confirmed_at || (action.proposal && confirmed.has(proposalKey(action.proposal))),
-            )}
-            onConfirm={confirm}
-            actionRef={messageId ? { messageId, index } : null}
-          />
-        ))}
+        {actions.map((action, index) => {
+          const key = action.proposal ? proposalKey(action.proposal) : null;
+          const isConfirmed = Boolean(action.confirmed_at || (key && confirmed.has(key)));
+          const link = key && confirmed.has(key) ? (confirmed.get(key) ?? null) : action.proposal ? proposalHref(action.proposal) : null;
+          return (
+            <ActionCard
+              key={`${prefix}-${index}`}
+              action={action}
+              confirmed={isConfirmed}
+              confirmedLink={link}
+              dismissed={Boolean(key && dismissed.has(key))}
+              onConfirm={confirm}
+              onDismiss={dismiss}
+              actionRef={messageId ? { messageId, index } : null}
+            />
+          );
+        })}
       </div>
     ) : null;
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} aria-label="Спросить ИИ">
+      <Button variant="outline" size="sm" onClick={() => setOpen(!open)} aria-label="Спросить ИИ" aria-pressed={open}>
         <Sparkles className="h-4 w-4 text-primary" />
         <span className="hidden sm:inline">Спросить ИИ</span>
       </Button>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md lg:max-w-xl">
-          <div className="flex items-center gap-2 border-b px-4 py-3 pr-12">
+      {open ? (
+        <aside
+          role="complementary"
+          aria-label="Ассистент"
+          className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l bg-background shadow-xl lg:w-[var(--dock-w)]"
+          style={{ "--dock-w": `${ASSISTANT_DOCK_WIDTH}px` } as React.CSSProperties}
+        >
+          <div className="flex items-center gap-2 border-b px-4 py-3">
             {view === "threads" ? (
               <Button variant="ghost" size="icon" onClick={() => setView("chat")} aria-label="Назад к чату">
                 <ArrowLeft className="h-4 w-4" />
@@ -468,18 +575,21 @@ function AssistantSheet() {
               </Button>
             )}
             <div className="min-w-0 flex-1">
-              <SheetTitle className="truncate text-base">
+              <h2 className="truncate text-base font-semibold">
                 {view === "threads" ? "История чатов" : activeThread?.title || "Ассистент"}
-              </SheetTitle>
-              <SheetDescription className="truncate text-xs">
+              </h2>
+              <p className="truncate text-xs text-muted-foreground">
                 {view === "threads"
                   ? "Ваши чаты видны только вам"
-                  : "Работает с данными кабинета через инструменты; необратимое — только с подтверждением"}
-              </SheetDescription>
+                  : "Видит вакансии, кандидатов и базу знаний. Изменения — только после вашего подтверждения"}
+              </p>
             </div>
             <Button variant="ghost" size="sm" onClick={newChat} aria-label="Новый чат">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Новый чат</span>
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Закрыть ассистента">
+              <X className="h-4 w-4" />
             </Button>
           </div>
 
@@ -606,6 +716,7 @@ function AssistantSheet() {
               }}
             >
               <Textarea
+                ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -625,8 +736,8 @@ function AssistantSheet() {
               </Button>
             </form>
           ) : null}
-        </SheetContent>
-      </Sheet>
+        </aside>
+      ) : null}
     </>
   );
 }
@@ -634,5 +745,5 @@ function AssistantSheet() {
 export function AssistantPanel() {
   const { can } = useAuth();
   if (!can("assistant.use")) return null;
-  return <AssistantSheet />;
+  return <AssistantDock />;
 }

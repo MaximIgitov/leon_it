@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   ActionResult,
   ProposalPreview,
+  actionHref,
   decisionLabel,
+  proposalButton,
   proposalCaption,
+  proposalHref,
   recommendationLabel,
 } from "@/components/assistant/action-views";
 import type { AssistantAction } from "@/lib/api/assistant";
@@ -103,6 +106,53 @@ describe("предложения ассистента", () => {
     expect(recommendationLabel("needs_check")).toBe("нужна проверка");
   });
 
+  it("создание вакансии показывает содержимое: название, уровень, навыки, описание", () => {
+    const html = renderToStaticMarkup(
+      <ProposalPreview
+        proposal={{
+          action: "create_vacancy",
+          summary: "Создать черновик",
+          params: {
+            title: "Go-разработчик",
+            level: "senior",
+            skills: ["Go", "gRPC"],
+            description: "Платформа заказов",
+            requirements: "Опыт от пяти лет",
+          },
+        }}
+      />,
+    );
+    expect(html).toContain("Go-разработчик");
+    expect(html).toContain("Senior");
+    expect(html).toContain("gRPC");
+    expect(html).toContain("Платформа заказов");
+    expect(html).toContain("Опыт от пяти лет");
+    expect(proposalCaption({ action: "create_vacancy", summary: "", params: {} })).toContain("черновик");
+  });
+
+  it("кнопка называет действие, необратимые — красные", () => {
+    expect(proposalButton({ action: "create_vacancy", summary: "", params: {} })).toEqual({ label: "Создать черновик", destructive: false });
+    expect(proposalButton({ action: "archive", summary: "", params: {} })).toEqual({ label: "Отправить в архив", destructive: true });
+    expect(proposalButton({ action: "decide", summary: "", params: { decision: "reject" } })).toEqual({ label: "Сохранить отказ", destructive: true });
+    expect(proposalButton({ action: "decide", summary: "", params: { decision: "advance" } }).label).toBe("Отправить дальше");
+    expect(proposalButton({ action: "invite", summary: "", params: { send_email: false } }).label).toBe("Добавить приглашение");
+    expect(proposalButton({ action: "unknown", summary: "", params: {} }).label).toBe("Подтвердить");
+  });
+
+  it("после подтверждения есть ссылка на то, что изменилось", () => {
+    expect(proposalHref({ action: "replace_questions", summary: "", params: { vacancy_id: "v1" } })).toEqual({ href: "/vacancies/v1?tab=questions", label: "Открыть вопросы" });
+    expect(proposalHref({ action: "update_rubric", summary: "", params: { vacancy_id: "v1" } })?.href).toBe("/vacancies/v1?tab=rubric");
+    expect(proposalHref({ action: "publish", summary: "", params: { vacancy_id: "v1" } })?.href).toBe("/vacancies/v1");
+    expect(proposalHref({ action: "decide", summary: "", params: { interview_id: "i1", vacancy_id: "v1", decision: "advance" } })?.href).toBe("/vacancies/v1/interviews/i1");
+    expect(proposalHref({ action: "decide", summary: "", params: { interview_id: "i1" } })).toBeNull();
+    expect(actionHref(action({ tool: "generate_rubric", params: { vacancy_id: "v1" } }))).toEqual({ href: "/vacancies/v1?tab=rubric", label: "Открыть рубрику" });
+    expect(actionHref(action({ tool: "get_vacancy", params: {}, result: { id: "v2", title: "Python" } }))?.href).toBe("/vacancies/v2");
+    expect(actionHref(action({ tool: "get_interview", params: { interview_id: "i1" }, result: { vacancy_id: "v1" } }))?.href).toBe("/vacancies/v1/interviews/i1");
+    expect(actionHref(action({ tool: "get_candidate", params: { candidate_id: "c1" } }))?.href).toBe("/candidates/c1");
+    expect(actionHref(action({ tool: "list_vacancies" }))).toBeNull();
+    expect(actionHref(action({ kind: "error", tool: "get_vacancy", params: { vacancy_id: "v1" } }))).toBeNull();
+  });
+
   it("подпись под кнопкой говорит, что именно произойдёт после подтверждения", () => {
     expect(proposalCaption({ action: "invite", summary: "", params: { send_email: true } })).toContain("письмо");
     expect(proposalCaption({ action: "invite", summary: "", params: { send_email: false } })).toContain("без письма");
@@ -125,7 +175,7 @@ describe("результаты инструментов", () => {
     expect(html).toContain("Найм");
     expect(html).toContain("фрагмент 1");
     expect(html).toContain("Этапы отбора");
-    expect(html).toContain("Показать данные");
+    expect(html).not.toContain("Показать данные");
   });
 
   it("рейтинг и список вакансий — таблицами с русскими подписями", () => {
@@ -148,9 +198,9 @@ describe("результаты инструментов", () => {
     expect(vacancies).toContain("Вопросов");
   });
 
-  it("неизвестный инструмент показывает только JSON, пустой результат — ничего", () => {
-    const html = renderToStaticMarkup(<ActionResult action={action({ tool: "vacancy_summary", result: { invited_total: 3 } })} />);
-    expect(html).toContain("invited_total");
+  it("неизвестный инструмент и пустой результат не показывают сырых данных", () => {
+    // Технических вставок в чате нет: что прочитал инструмент, пересказывает сам ассистент.
+    expect(renderToStaticMarkup(<ActionResult action={action({ tool: "vacancy_summary", result: { invited_total: 3 } })} />)).toBe("");
     expect(renderToStaticMarkup(<ActionResult action={action({ result: null })} />)).toBe("");
   });
 });

@@ -17,6 +17,9 @@ import pytest
 
 _TMP_DIR = Path(os.environ.get("PYTEST_TMP_ROOT", ".pytest_tmp")) / str(os.getpid())
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
+# Windows переиспользует PID: база от старого прогона имела бы устаревшую схему,
+# а ``create_all`` недостающих колонок не добавляет — начинаем с чистого файла.
+(_TMP_DIR / "test.db").unlink(missing_ok=True)
 os.environ.setdefault("ENVIRONMENT", "test")
 # TEST_DATABASE_URL — прогон на живом PostgreSQL (CI); иначе своя SQLite-база.
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or (

@@ -11,6 +11,7 @@ import { API_BASE_URL, ApiError, apiFetch, getAccessToken } from "./client";
 export type ActionKind = "done" | "proposed" | "error";
 
 export type ProposalAction =
+  | "create_vacancy"
   | "invite"
   | "publish"
   | "archive"

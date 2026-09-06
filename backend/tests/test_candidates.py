@@ -380,3 +380,52 @@ async def test_hiring_manager_scope_for_candidates_and_interviews(client: AsyncC
 
 async def test_unknown_public_token_is_404(client: AsyncClient) -> None:
     assert (await client.get("/api/public/invitations/nope")).status_code == 404
+
+
+async def test_interview_list_carries_evaluation_summary(client: AsyncClient) -> None:
+    """Список кандидатов по вакансии показывает балл, рекомендацию и цитаты без карточки."""
+    from leonit.core.db import get_session_maker
+    from leonit.core.time import utcnow
+    from leonit.evaluation.models import Evaluation, EvaluationStatus
+    from leonit.evaluation.prompts import PROMPT_VERSION
+
+    _, owner = await register(client)
+    vacancy = await _published_vacancy(client, owner)
+    scored = await _invite(client, owner, vacancy["id"], "scored@example.com")
+    pending = await _invite(client, owner, vacancy["id"], "pending@example.com")
+    async with get_session_maker()() as session:
+        session.add(
+            Evaluation(
+                interview_id=uuid.UUID(scored["id"]),
+                status=EvaluationStatus.done,
+                fit_score=71.4,
+                recommendation="fit",
+                output={"confidence": 0.85},
+                quotes_found=16,
+                quotes_total=16,
+                prompt_version=PROMPT_VERSION,
+                model="test",
+                evaluated_at=utcnow(),
+            )
+        )
+        session.add(
+            Evaluation(
+                interview_id=uuid.UUID(pending["id"]),
+                status=EvaluationStatus.pending,
+                prompt_version=PROMPT_VERSION,
+                model="test",
+            )
+        )
+        await session.commit()
+
+    rows = (
+        await client.get(f"/api/interviews?vacancy_id={vacancy['id']}", headers=bearer(owner))
+    ).json()
+    by_id = {row["id"]: row for row in rows}
+    assert by_id[scored["id"]]["fit_score"] == 71.4
+    assert by_id[scored["id"]]["recommendation"] == "fit"
+    assert by_id[scored["id"]]["confidence"] == 0.85
+    assert (by_id[scored["id"]]["quotes_found"], by_id[scored["id"]]["quotes_total"]) == (16, 16)
+    # Незавершённое заключение не показывается как оценка.
+    assert by_id[pending["id"]]["fit_score"] is None
+    assert by_id[pending["id"]]["recommendation"] is None
