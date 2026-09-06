@@ -69,6 +69,8 @@ log = get_logger(__name__)
 
 HH_SYNC_JOB = "hh.sync"
 PERIODIC_KEY_PREFIX = "hh:sync:periodic:"
+# hh.ru выдаёт access_token на 14 дней; для импортированного токена без даты берём этот срок.
+DEFAULT_IMPORTED_TOKEN_DAYS = 14
 _REQUIREMENTS_HEADING_RE = re.compile(
     r"требован|ожида|жд[её]м|нужно|необходим|что важно|плюсом|будет плюс", re.IGNORECASE
 )
@@ -81,7 +83,9 @@ _HEADING_RE = re.compile(r"^[^.!?]{2,60}:$")
 def store_tokens(connection: HhConnection, tokens: HhTokens) -> None:
     box = get_secret_box()
     connection.access_token_enc = box.encrypt(tokens.access_token)
-    connection.refresh_token_enc = box.encrypt(tokens.refresh_token)
+    # Пустой refresh_token (импортированный токен) храним пустой строкой, а не
+    # шифртекстом пустоты: по нему интерфейс понимает, что обновления не будет.
+    connection.refresh_token_enc = box.encrypt(tokens.refresh_token) if tokens.refresh_token else ""
     connection.expires_at = tokens.expires_at
 
 
@@ -96,7 +100,9 @@ def build_client(
     try:
         tokens = HhTokens(
             access_token=box.decrypt(connection.access_token_enc),
-            refresh_token=box.decrypt(connection.refresh_token_enc),
+            refresh_token=(
+                box.decrypt(connection.refresh_token_enc) if connection.refresh_token_enc else ""
+            ),
             expires_at=aware(connection.expires_at) or utcnow(),
         )
     except SecretBoxError as error:
@@ -177,6 +183,8 @@ class HhService:
             connected_at=aware(connection.created_at),  # type: ignore[arg-type]
             last_synced_at=aware(connection.last_synced_at),
             webhook_url=url,
+            token_refreshable=connection.mode == "fake" or bool(connection.refresh_token_enc),
+            expires_at=aware(connection.expires_at),
         )
 
     async def status(self, actor: Actor) -> HhStatusOut:
@@ -235,6 +243,57 @@ class HhService:
             hh_user_id=employer.user_id,
             manager_account_id=employer.manager_account_id,
             connected_by=parsed.user_id,
+        )
+        store_tokens(connection, tokens)
+        await self.session.commit()
+        return connection
+
+    def _real_client(self, tokens: HhTokens) -> RealHhClient:
+        """Клиент по голым токенам; тесты подменяют транспорт здесь."""
+        return RealHhClient(self.settings, tokens)
+
+    async def connect_with_token(
+        self,
+        actor: Actor,
+        *,
+        access_token: str,
+        refresh_token: str | None = None,
+        expires_at: datetime | None = None,
+    ) -> HhConnection:
+        """Подключить готовый токен hh.ru, не проходя OAuth заново.
+
+        Сценарий: у работодателя уже есть рабочая авторизация в другом приложении,
+        а повторная выдача токена сломала бы её. Без refresh_token пара никогда не
+        обновляется, поэтому токен приложения-источника остаётся действующим; по
+        истечении срока владелец вставляет новый.
+        """
+        authorize(actor, "integrations.manage")
+        if self.settings.effective_hh_mode != "real":
+            raise ConflictError(
+                "Ключи HH_CLIENT_ID/HH_CLIENT_SECRET не заданы — доступен только демо-аккаунт"
+            )
+        tokens = HhTokens(
+            access_token=access_token.strip(),
+            refresh_token=(refresh_token or "").strip(),
+            expires_at=aware(expires_at) or utcnow() + timedelta(days=DEFAULT_IMPORTED_TOKEN_DAYS),
+        )
+        if aware(tokens.expires_at) <= utcnow():  # type: ignore[operator]
+            raise ValidationFailedError("Срок действия токена уже истёк")
+        async with self._real_client(tokens) as client:
+            employer = await client.me()
+            tokens = client.tokens
+        if not employer.id:
+            raise ValidationFailedError(
+                "Токен не привязан к работодателю — нужен токен менеджера компании"
+            )
+        connection = await self._upsert_connection(
+            actor.organization_id,
+            mode="real",
+            employer_id=employer.id,
+            employer_name=employer.name,
+            hh_user_id=employer.user_id,
+            manager_account_id=employer.manager_account_id,
+            connected_by=actor.user.id,
         )
         store_tokens(connection, tokens)
         await self.session.commit()
