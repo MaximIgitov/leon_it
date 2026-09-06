@@ -4,20 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Mic, Square } from "lucide-react";
 
 import { Mascot } from "@/components/brand/mascot";
+import { MicBars, SpeechBars } from "@/components/interview/avatar-stage";
 import { Button } from "@/components/ui/button";
 import { pickMimeType } from "@/lib/media/recorder";
 import { useVoiceActivity, type SilenceEvent } from "@/lib/media/voice-activity";
+import { cn } from "@/lib/utils";
 
 /*
- * Тренировочный вопрос повторяет настоящий ход интервью, только ничего не
- * отправляет: вопрос показывается, идёт запись с таймером, в живом диалоге пауза
- * завершает ответ сама, затем кандидат смотрит свою запись. Так он понимает, как
- * выглядит ответ, до первого вопроса, который уже уйдёт рекрутеру.
+ * Тренировочный вопрос повторяет комнату интервью один в один: та же сцена с
+ * Леоном, камера кандидата в углу, статус «задаёт вопрос → слушает», в живом
+ * диалоге пауза завершает ответ сама. Отличие одно — ничего не отправляется:
+ * запись остаётся в браузере, и кандидат сразу смотрит, как выглядит его ответ.
  */
 
 const PRACTICE_QUESTION = "Расскажите в двух предложениях, чем вы занимались на последнем месте работы.";
 const MAX_SECONDS = 30;
-const READ_QUESTION_MS = 2500;
+const READ_QUESTION_MS = 3000;
 
 export type PracticeMode = "live" | "push_to_talk";
 
@@ -122,53 +124,86 @@ export function PracticeQuestion({
     setState("intro");
   };
 
-  const statusChip =
-    state === "asking" ? (
-      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-        ИИ-интервьюер · задаёт вопрос
-      </span>
-    ) : state === "recording" ? (
-      <span className="flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-xs text-white">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-        Идёт запись · {formatClock(seconds)} из {formatClock(MAX_SECONDS)}
-      </span>
-    ) : null;
+  const waitingPause = state === "recording" && live && voice.countdown !== null;
+  const stageLabel =
+    state === "intro"
+      ? "готов"
+      : state === "asking"
+        ? "задаёт вопрос"
+        : state === "recording"
+          ? waitingPause
+            ? "ждёт паузу"
+            : "слушает"
+          : "";
+  const stageText =
+    state === "intro"
+      ? live
+        ? "Леон задаст один пробный вопрос. Отвечайте как в разговоре: пауза в несколько секунд завершит ответ."
+        : "Леон задаст один пробный вопрос. Вы нажмёте «Начать ответ», ответите и завершите кнопкой — как в интервью."
+      : PRACTICE_QUESTION;
 
   return (
     <div className="space-y-4">
       <div className="practice-question-heading"><Mascot name="listen" /><div>
         <h2>Можно просто быть собой</h2>
-        <p>Пробный вопрос · запись только в твоём браузере</p>
+        <p>Пробный вопрос · всё как в интервью, но запись останется только в твоём браузере</p>
       </div></div>
 
-      <div className="rounded-xl border bg-secondary/30 p-4">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">Вопрос</p>
-        <p className="mt-1 text-lg font-semibold">{PRACTICE_QUESTION}</p>
-      </div>
-
-      <div className="relative overflow-hidden rounded-xl bg-black">
-        {state === "playback" && url ? (
+      {state === "playback" && url ? (
+        <div className="relative overflow-hidden rounded-xl bg-black">
           <video src={url} controls playsInline className="aspect-video w-full" />
-        ) : (
-          <video ref={videoRef} muted playsInline autoPlay className="aspect-video w-full object-cover" />
-        )}
-        {statusChip ? <div className="absolute left-3 top-3">{statusChip}</div> : null}
-        {state === "recording" && live && voice.countdown !== null ? (
-          <div className="absolute bottom-3 left-3 rounded-full bg-black/70 px-2.5 py-1 text-xs text-white">
-            Пауза · ответ завершится через {voice.countdown} с
-          </div>
-        ) : null}
-        {state === "playback" ? (
           <div className="absolute left-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-xs text-white">
             Ваша запись · {formatClock(seconds)}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-card" data-testid="practice-stage">
+          <div className="relative aspect-[4/3] w-full sm:aspect-[16/10]">
+            <div className="interview-stage-art" data-speaking={state === "asking"}>
+              <Mascot cutout name={state === "recording" ? "listen" : "leo"} eager />
+            </div>
+            <div className="absolute left-3 top-3 interview-stage-status">
+              <span className="font-extrabold">Леон · ИИ-интервьюер</span>
+              {stageLabel ? (
+                <span className="normal-case tracking-normal opacity-90" aria-live="polite">
+                  · {stageLabel}
+                </span>
+              ) : null}
+              {state === "asking" ? <SpeechBars /> : null}
+              {state === "recording" && !waitingPause ? <MicBars level={voice.level} /> : null}
+            </div>
+            {state === "recording" ? (
+              <div className="absolute right-3 top-3">
+                <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                  Запись {formatClock(seconds)} из {formatClock(MAX_SECONDS)}
+                </span>
+              </div>
+            ) : null}
+            {waitingPause ? (
+              <div
+                className="absolute bottom-3 left-1/2 max-w-[90%] -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-center text-sm text-white"
+                aria-live="polite"
+              >
+                Завершаю ответ через {voice.countdown} с. Продолжайте, если не закончили.
+              </div>
+            ) : null}
+            <div className="absolute bottom-3 right-3 w-28 overflow-hidden rounded-lg shadow-lg ring-2 ring-white/80 sm:w-40">
+              <video ref={videoRef} muted playsInline autoPlay className="aspect-[4/3] w-full bg-black object-cover" />
+            </div>
+          </div>
+          <div className="flex items-start gap-2 border-t px-4 py-3">
+            <p className={cn("min-w-0 flex-1 leading-snug", state === "intro" ? "text-sm text-muted-foreground" : "text-base font-semibold sm:text-lg")}>
+              {stageText}
+            </p>
+          </div>
+        </div>
+      )}
 
       {note ? <p className="text-sm text-warning">{note}</p> : null}
       {state === "recording" && live && !note ? (
         <p className="text-sm text-muted-foreground">
-          {voice.countdown !== null
+          {waitingPause
             ? "Пауза. Если вы закончили, ответ завершится сам."
             : "Слушаю. Говорите свободно: пауза в несколько секунд завершит ответ."}
         </p>

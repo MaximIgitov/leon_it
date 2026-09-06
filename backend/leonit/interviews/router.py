@@ -20,6 +20,7 @@ from leonit.interviews.schemas import (
     AnswerCreated,
     AnswerDetail,
     AnswerOut,
+    AvatarOut,
     CodeRunIn,
     CodeSubmissionIn,
     EventsAccepted,
@@ -63,7 +64,12 @@ def answer_out(answer: Answer) -> AnswerOut:
     )
 
 
-def _state(interview: Interview, answers: list[Answer], revealed) -> InterviewState:
+def _state(
+    interview: Interview,
+    answers: list[Answer],
+    revealed,
+    avatar: AvatarOut | None = None,
+) -> InterviewState:
     snapshot = interview.question_snapshot or []
     visible = snapshot[: interview.current_question_index + 1]
     return InterviewState(
@@ -76,6 +82,7 @@ def _state(interview: Interview, answers: list[Answer], revealed) -> InterviewSt
         revealed_at=revealed,
         expires_at=aware(interview.expires_at),  # type: ignore[arg-type]
         code_runner=code_runner_out(),
+        avatar=avatar or AvatarOut(),
     )
 
 
@@ -89,13 +96,14 @@ async def start_interview(
     _limit(request)
     service = InterviewRoomService(session)
     await service.start(token, payload.client_info)
-    return _state(*await service.state(token))
+    return _state(*await service.state(token), await service.avatar_preview(token))
 
 
 @room_router.get("/state", response_model=InterviewState)
 async def interview_state(token: str, session: DbSession, request: Request) -> InterviewState:
     _limit(request)
-    return _state(*await InterviewRoomService(session).state(token))
+    service = InterviewRoomService(session)
+    return _state(*await service.state(token), await service.avatar_preview(token))
 
 
 @room_router.post("/questions/{index}/reveal", response_model=RevealOut)

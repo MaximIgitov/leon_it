@@ -71,8 +71,19 @@ test("кандидат проходит интервью от ссылки до 
   // Проверка устройств: фейковая камера даёт поток; пробная запись 5 с.
   await passDeviceCheck(page);
 
-  // Тренировочный вопрос можно пропустить.
-  await page.getByRole("button", { name: "Пропустить" }).click();
+  // Тренировочный вопрос повторяет комнату: сцена с Леоном, вопрос, запись с
+  // таймером, затем кандидат смотрит свою запись и идёт к интервью.
+  await expect(page.getByTestId("practice-stage")).toBeVisible();
+  await page.getByRole("button", { name: "Начать тренировку" }).click();
+  await page.getByRole("button", { name: "Начать ответ" }).click();
+  await expect(page.getByText(/Запись 0:0\d из 0:30/)).toBeVisible();
+  await page.waitForTimeout(2000);
+  const shots = process.env.E2E_SHOTS_DIR;
+  if (shots) await page.screenshot({ path: `${shots}/practice-recording.png` });
+  await page.getByRole("button", { name: "Завершить ответ" }).click();
+  await expect(page.getByText(/Ваша запись · 0:0\d/)).toBeVisible({ timeout: 15_000 });
+  if (shots) await page.screenshot({ path: `${shots}/practice-playback.png` });
+  await page.getByRole("button", { name: "Перейти к интервью" }).click();
 
   for (const index of [0, 1]) {
     await expect(page.getByText(`Готовы к вопросу ${index + 1}?`)).toBeVisible();

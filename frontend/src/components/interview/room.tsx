@@ -678,6 +678,7 @@ export function InterviewRoom({
           <AvatarStage
             question={question}
             avatar={avatar}
+            poster={state?.avatar?.poster_url ?? null}
             audioRef={audioRef}
             hasAudio={Boolean(audioUrl)}
             onReplay={replayQuestion}

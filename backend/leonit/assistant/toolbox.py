@@ -43,7 +43,7 @@ from leonit.assistant.prompts import data_block
 from leonit.candidates.models import Candidate, Interview, InterviewStatus
 from leonit.candidates.service import CandidateService, InterviewService
 from leonit.core.authz import Actor, authorize, can, visible_vacancy_ids
-from leonit.core.errors import DomainError, ValidationFailedError
+from leonit.core.errors import DomainError, ValidationFailedError, describe_validation_errors
 from leonit.core.logging import get_logger
 from leonit.core.time import aware, utcnow
 from leonit.evaluation import service as evaluation_service
@@ -545,11 +545,7 @@ class ServiceToolbox:
         try:
             args = tool.args.model_validate(arguments or {})
         except ValidationError as error:
-            problems = "; ".join(
-                f"{'.'.join(str(p) for p in item.get('loc', ()))}: {item.get('msg')}"
-                for item in error.errors()[:5]
-            )
-            return ToolResult("error", name, arguments, f"Некорректные аргументы: {problems}")
+            return ToolResult("error", name, arguments, describe_validation_errors(error.errors()))
         params = args.model_dump(mode="json", exclude_none=True)
         try:
             result = await tool.handler(args)

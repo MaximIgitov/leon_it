@@ -628,7 +628,7 @@ async def test_unknown_tool_and_bad_arguments_do_not_break_the_turn(client: Asyn
     )[0]
     assert bad_id["kind"] == "error" and "идентификатор" in bad_id["summary"]
     missing = _actions(await _send(client, owner, thread["id"], "[[call:get_vacancy {}]]"))[0]
-    assert missing["kind"] == "error" and "аргументы" in missing["summary"].lower()
+    assert missing["kind"] == "error" and "обязательное поле" in missing["summary"].lower()
 
 
 # ------------------------------------------------------------------ стрим

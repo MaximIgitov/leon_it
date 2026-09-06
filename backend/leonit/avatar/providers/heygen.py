@@ -41,9 +41,16 @@ class HeyGenError(RuntimeError):
     """Сеть, HTTP-статус или таймаут рендера: комната и прогрев логируют и живут дальше."""
 
 
-def clip_fingerprint(text: str, avatar_id: str, voice_id: str, engine: str, resolution: str) -> str:
+def clip_fingerprint(
+    text: str,
+    avatar_id: str,
+    voice_id: str,
+    engine: str,
+    resolution: str,
+    aspect_ratio: str = "16:9",
+) -> str:
     """Отпечаток клипа: он же ключ идемпотентности у HeyGen и имя файла в хранилище."""
-    raw = f"{text}|{avatar_id}|{voice_id}|{engine}|{resolution}"
+    raw = f"{text}|{avatar_id}|{voice_id}|{engine}|{resolution}|{aspect_ratio}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -56,6 +63,7 @@ class HeyGenAvatar:
     base_url: str = "https://api.heygen.com"
     engine: str = "avatar_iii"
     resolution: str = "720p"
+    aspect_ratio: str = "16:9"
     timeout_s: float = 420.0
     poll_s: float = 5.0
     max_text_chars: int = 600
@@ -79,6 +87,7 @@ class HeyGenAvatar:
             base_url=settings.AVATAR_HEYGEN_BASE_URL,
             engine=settings.AVATAR_HEYGEN_ENGINE,
             resolution=settings.AVATAR_HEYGEN_RESOLUTION,
+            aspect_ratio=settings.AVATAR_HEYGEN_ASPECT_RATIO,
             timeout_s=settings.AVATAR_HEYGEN_TIMEOUT_S,
             poll_s=settings.AVATAR_HEYGEN_POLL_S,
             max_text_chars=settings.AVATAR_MAX_TEXT_CHARS,
@@ -129,7 +138,7 @@ class HeyGenAvatar:
             )
             return None
         fingerprint = clip_fingerprint(
-            text, self.avatar_id, self.voice_id, self.engine, self.resolution
+            text, self.avatar_id, self.voice_id, self.engine, self.resolution, self.aspect_ratio
         )
         storage_key = f"avatar/heygen/{fingerprint[:32]}.mp4"
         async with self._session() as client:
@@ -163,7 +172,7 @@ class HeyGenAvatar:
             "voice_id": self.voice_id,
             "engine": {"type": self.engine},
             "resolution": self.resolution,
-            "aspect_ratio": "1:1",
+            "aspect_ratio": self.aspect_ratio,
             "title": f"LeonIT вопрос {fingerprint[:8]}",
         }
         headers = {**self._headers(), "Idempotency-Key": f"leonit-{fingerprint[:48]}"}
