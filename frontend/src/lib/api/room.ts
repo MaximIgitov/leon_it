@@ -40,6 +40,8 @@ export type AvatarInfo = {
   enabled: boolean;
   clip_url: string | null;
   duration_s: number | null;
+  /** Кадр аватара до первого вопроса: клип, который показывают без воспроизведения. */
+  poster_url?: string | null;
 };
 
 export type RoomAnswer = {
@@ -57,6 +59,8 @@ export type RoomAnswer = {
 };
 
 export type InterviewState = {
+  /** Аватар до первого вопроса: постер из клипа, если он уже готов. */
+  avatar?: AvatarInfo;
   status: string;
   current_question_index: number;
   total_questions: number;

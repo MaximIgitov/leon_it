@@ -99,6 +99,8 @@ class AvatarOut(BaseModel):
     enabled: bool = False
     clip_url: str | None = None
     duration_s: float | None = None
+    # Кадр аватара до первого вопроса: клип первого вопроса, показанный без воспроизведения.
+    poster_url: str | None = None
 
 
 class AnswerOut(BaseModel):
@@ -127,6 +129,8 @@ class InterviewState(BaseModel):
     # Пауза до дедлайна ссылки: клиент показывает её на вводном экране.
     expires_at: datetime
     code_runner: CodeRunnerOut
+    # До первого вопроса: включён ли аватар и есть ли постер (клип первого вопроса).
+    avatar: AvatarOut = Field(default_factory=AvatarOut)
 
 
 class FollowupStatus(BaseModel):

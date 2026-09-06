@@ -186,6 +186,8 @@ class Settings(BaseSettings):
     # avatar_iii — самый дешёвый движок (около $1 за минуту видео), avatar_iv в разы дороже.
     AVATAR_HEYGEN_ENGINE: Literal["avatar_iii", "avatar_iv", "avatar_v"] = "avatar_iii"
     AVATAR_HEYGEN_RESOLUTION: Literal["720p", "1080p"] = "720p"
+    # 16:9 оставляет аватару запас над головой; квадрат HeyGen режет верх кадра.
+    AVATAR_HEYGEN_ASPECT_RATIO: Literal["16:9", "9:16", "1:1"] = "16:9"
     AVATAR_HEYGEN_TIMEOUT_S: float = Field(default=420.0, gt=0, le=1800)
     AVATAR_HEYGEN_POLL_S: float = Field(default=5.0, gt=0, le=60)
     # Экономия: вопрос длиннее лимита не рендерится — минута видео стоит денег.

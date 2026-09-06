@@ -181,7 +181,12 @@ def _ctx() -> JobContext:
 
 async def test_avatar_disabled_by_default(client: AsyncClient) -> None:
     _, body = await _revealed(client, avatar=False)
-    assert body["avatar"] == {"enabled": False, "clip_url": None, "duration_s": None}
+    assert body["avatar"] == {
+        "enabled": False,
+        "clip_url": None,
+        "duration_s": None,
+        "poster_url": None,
+    }
 
 
 async def test_vacancy_without_avatar_keeps_persona_even_with_provider(
@@ -192,7 +197,12 @@ async def test_vacancy_without_avatar_keeps_persona_even_with_provider(
     stub = StubAvatar()
     monkeypatch.setattr(room_service, "get_avatar_provider", lambda settings=None: stub)
     _, body = await _revealed(client, avatar=False)
-    assert body["avatar"] == {"enabled": False, "clip_url": None, "duration_s": None}
+    assert body["avatar"] == {
+        "enabled": False,
+        "clip_url": None,
+        "duration_s": None,
+        "poster_url": None,
+    }
     assert stub.calls == 0
 
 
@@ -230,7 +240,12 @@ async def test_provider_failure_keeps_interview_going(
     )
     _, body = await _revealed(client)
     assert body["question"]["text"] == "Расскажите о себе"
-    assert body["avatar"] == {"enabled": True, "clip_url": None, "duration_s": None}
+    assert body["avatar"] == {
+        "enabled": True,
+        "clip_url": None,
+        "duration_s": None,
+        "poster_url": None,
+    }
 
 
 # ------------------------------------------------- долгий рендер и прогрев
@@ -245,7 +260,12 @@ async def test_background_provider_serves_cached_clips_only_and_schedules_prewar
     link, vacancy_id = await _in_room(client)
     # Комната рендер не запускает: кандидат видит персону, прогрев стоит в очереди (без дублей).
     first = (await client.post(f"/api/public/invitations/{link}/questions/0/reveal")).json()
-    assert first["avatar"] == {"enabled": True, "clip_url": None, "duration_s": None}
+    assert first["avatar"] == {
+        "enabled": True,
+        "clip_url": None,
+        "duration_s": None,
+        "poster_url": None,
+    }
     assert stub.calls == 0
     jobs = await _prewarm_jobs(vacancy_id)
     assert len(jobs) == 1 and jobs[0].dedupe_key == f"{PREWARM_KIND}:{vacancy_id}"
@@ -253,7 +273,20 @@ async def test_background_provider_serves_cached_clips_only_and_schedules_prewar
     clip = await get_or_render(get_storage(), stub, "Расскажите о себе", "nova", "ru")
     assert clip is not None and stub.calls == 1
     again = (await client.post(f"/api/public/invitations/{link}/questions/0/reveal")).json()
-    assert again["avatar"] == {"enabled": True, "clip_url": clip.url, "duration_s": 4.2}
+    assert again["avatar"] == {
+        "enabled": True,
+        "clip_url": clip.url,
+        "duration_s": 4.2,
+        "poster_url": None,
+    }
+    # До первого вопроса комната показывает постер: готовый клип первого вопроса без звука.
+    state = (await client.get(f"/api/public/invitations/{link}/state")).json()
+    assert state["avatar"] == {
+        "enabled": True,
+        "clip_url": None,
+        "duration_s": None,
+        "poster_url": clip.url,
+    }
     assert stub.calls == 1
 
 
@@ -428,9 +461,9 @@ async def test_heygen_renders_downloads_and_stores_clip(tmp_path: Path) -> None:
     body = json.loads(submit.content)
     assert body["type"] == "avatar" and body["avatar_id"] == "Look_1"
     assert body["voice_id"] == "voice-ru" and body["script"] == "Расскажите о себе"
-    # Экономия: самый дешёвый движок, 720p, квадрат под сцену комнаты.
+    # Экономия: самый дешёвый движок и 720p; кадр 16:9, чтобы не резать голову аватара.
     assert body["engine"] == {"type": "avatar_iii"}
-    assert body["resolution"] == "720p" and body["aspect_ratio"] == "1:1"
+    assert body["resolution"] == "720p" and body["aspect_ratio"] == "16:9"
     assert submit.headers["x-api-key"] == "key-1"
     assert submit.headers["Idempotency-Key"].startswith("leonit-")
     download = next(call for call in calls if call.url.host == "cdn.heygen.test")

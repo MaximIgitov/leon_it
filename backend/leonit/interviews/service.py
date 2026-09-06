@@ -231,6 +231,43 @@ class InterviewRoomService:
         revealed = await self._revealed_at(interview.id)
         return interview, answers, revealed
 
+    async def avatar_preview(self, token: str) -> AvatarOut:
+        """Аватар для экрана до вопроса: постер из готового клипа первого вопроса.
+
+        Ничего не рендерится — клип берётся из кэша прогрева; промах или
+        выключенный аватар дают пустой ответ, и комната показывает персону LeonIT.
+        """
+        interview, vacancy, _ = await self._load(token)
+        snapshot = interview.settings_snapshot or {}
+        settings = get_settings()
+        if not settings.AVATAR_ENABLED or not snapshot.get("avatar_enabled"):
+            return AvatarOut(enabled=False)
+        provider = get_avatar_provider(settings)
+        if not provider.enabled:
+            return AvatarOut(enabled=False)
+        questions = interview.question_snapshot or []
+        if not questions:
+            return AvatarOut(enabled=True)
+        try:
+            clip = await lookup(
+                self.storage,
+                provider,
+                questions[0]["text"],
+                snapshot.get("voice"),
+                vacancy.language,
+            )
+        except Exception as error:  # постер — украшение: без него интервью идёт как обычно
+            log.warning("avatar.preview_unavailable provider=%s error=%s", provider.name, error)
+            return AvatarOut(enabled=True)
+        if clip is None:
+            return AvatarOut(enabled=True)
+        url = (
+            sign_media_url(clip.storage_key, ttl_s=1800, content_type="video/mp4")
+            if clip.storage_key
+            else clip.url
+        )
+        return AvatarOut(enabled=True, poster_url=url)
+
     def _question_by_id(self, interview: Interview, question_id: str) -> dict[str, Any]:
         """Текущий вопрос по id из снимка: код принимается только на него."""
         snapshot = interview.question_snapshot or []

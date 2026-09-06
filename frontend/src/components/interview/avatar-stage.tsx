@@ -32,6 +32,8 @@ type Props = {
   variant?: "stage" | "compact";
   question: SnapshotQuestion | null;
   avatar: AvatarInfo | null;
+  /** Кадр аватара, пока клипа вопроса ещё нет: видео первого вопроса на паузе. */
+  poster?: string | null;
   audioRef: RefObject<HTMLAudioElement | null>;
   hasAudio: boolean;
   onReplay: () => void;
@@ -76,7 +78,7 @@ function useAudioSpeaking(audioRef: RefObject<HTMLAudioElement | null>, enabled:
   return speaking;
 }
 
-function SpeechBars() {
+export function SpeechBars() {
   return (
     <span className="flex h-3 items-end gap-0.5" aria-hidden>
       <span className="h-2 w-1 animate-pulse rounded-full bg-primary" />
@@ -86,7 +88,7 @@ function SpeechBars() {
   );
 }
 
-function MicBars({ level }: { level: number }) {
+export function MicBars({ level }: { level: number }) {
   const height = (factor: number) => `${Math.max(3, Math.min(14, 3 + level * 80 * factor))}px`;
   return (
     <span className="flex h-3.5 items-end gap-0.5" aria-hidden data-testid="mic-level">
@@ -118,6 +120,7 @@ export function AvatarStage(props: Props) {
 function FullStage({
   question,
   avatar,
+  poster = null,
   audioRef,
   hasAudio,
   onReplay,
@@ -169,9 +172,19 @@ function FullStage({
             className="h-full w-full object-contain"
             aria-label="ИИ-интервьюер LeonIT задаёт вопрос"
           />
+        ) : poster ? (
+          <video
+            key={poster}
+            src={poster}
+            muted
+            playsInline
+            preload="auto"
+            className="h-full w-full object-contain"
+            aria-label="ИИ-интервьюер LeonIT"
+          />
         ) : (
           <div className="interview-stage-art" data-speaking={speaking}>
-            <Mascot name={status === "thinking" || status === "saving" ? "think" : status === "listening" ? "listen" : "leo"} eager />
+            <Mascot cutout name={status === "thinking" || status === "saving" ? "think" : status === "listening" ? "listen" : "leo"} eager />
           </div>
         )}
 
@@ -245,7 +258,7 @@ function CompactStage({ question, avatar, audioRef, hasAudio, onReplay, classNam
               speaking ? "ring-primary/30" : "ring-primary/10",
             )}
           >
-            <Mascot name="leo" eager />
+            <Mascot cutout name="leo" eager />
           </div>
         </div>
       )}
