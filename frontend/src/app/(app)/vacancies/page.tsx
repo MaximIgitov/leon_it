@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Briefcase, Loader2, Plus } from "lucide-react";
+import { Briefcase, Loader2, MessageSquare, Plus, Sparkles } from "lucide-react";
 
+import { openAssistant } from "@/components/assistant/dock";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -94,21 +95,27 @@ function CreateVacancyDialog() {
         <DialogHeader>
           <DialogTitle>Новая вакансия</DialogTitle>
           <DialogDescription>
-            Вставьте готовое описание — ассистент соберёт уровень, навыки, рубрику и вопросы,
-            которые вы донастроите на странице вакансии. Или заполните вручную.
+            С ИИ — из текста или из разговора с ассистентом. Вручную — пустая вакансия, которую вы
+            заполните сами.
           </DialogDescription>
         </DialogHeader>
-        <Tabs defaultValue="quick">
+        <Tabs defaultValue="ai">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="quick">Из текста вакансии</TabsTrigger>
+            <TabsTrigger value="ai" className="gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-primary" /> С помощью ИИ
+            </TabsTrigger>
             <TabsTrigger value="manual">Вручную</TabsTrigger>
           </TabsList>
-          <TabsContent value="quick" className="space-y-4 pt-4">
+          <TabsContent value="ai" className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              ИИ прочитает текст и соберёт уровень, навыки, рубрику компетенций с якорными уровнями
+              и вопросы интервью. Вы проверите и поправите их на странице вакансии.
+            </p>
             <div className="space-y-2">
               <Label htmlFor="vacancy-source">Текст вакансии</Label>
               <Textarea
                 id="vacancy-source"
-                rows={8}
+                rows={7}
                 placeholder="Вставьте вакансию как есть: с hh, из Huntflow или письма нанимающего менеджера"
                 value={sourceText}
                 onChange={(event) => setSourceText(event.target.value)}
@@ -124,17 +131,34 @@ function CreateVacancyDialog() {
                 onChange={(event) => setSourceFile(event.target.files?.[0] ?? null)}
               />
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setOpen(false);
+                  openAssistant({
+                    prompt: "Создай вакансию: название, уровень, ключевые навыки, требования — ",
+                  });
+                }}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Описать ассистенту в чате
+              </Button>
               <Button
                 onClick={submitQuick}
                 disabled={pending || (!sourceFile && sourceText.trim().length < 20)}
               >
-                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Собрать черновик
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Собрать с ИИ
               </Button>
             </DialogFooter>
           </TabsContent>
           <TabsContent value="manual" className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Пустая вакансия с названием и описанием. Рубрику и вопросы потом можно собрать с ИИ
+              кнопкой «Собрать с ИИ» на странице вакансии.
+            </p>
             <div className="space-y-2">
               <Label htmlFor="vacancy-title">Название</Label>
               <Input
@@ -211,7 +235,8 @@ export default function VacanciesPage() {
           <Briefcase className="mx-auto h-8 w-8 text-muted-foreground" />
           <p className="mt-3 font-medium">Вакансий пока нет</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Создайте первую — и через несколько минут можно приглашать кандидатов.
+            Быстрее всего — «Новая вакансия → С помощью ИИ»: вставьте текст, ИИ соберёт рубрику и
+            вопросы, и через несколько минут можно приглашать кандидатов.
           </p>
         </div>
       ) : (

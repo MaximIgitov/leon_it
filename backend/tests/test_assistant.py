@@ -186,19 +186,30 @@ async def test_create_vacancy_tool_creates_draft(client: AsyncClient) -> None:
         client, recruiter_owner, thread["id"], f"[[call:create_vacancy {json.dumps(payload)}]]"
     )
     action = _actions(result)[0]
-    assert action["kind"] == "done"
-    assert action["params"] == {
+    # Создание вакансии — крупное действие: ассистент показывает содержимое и ждёт
+    # подтверждения, черновик появляется только после кнопки в интерфейсе.
+    assert action["kind"] == "proposed"
+    assert action["proposal"]["action"] == "create_vacancy"
+    assert action["proposal"]["params"] == {
         "title": "Go-разработчик",
         "description": "",
         "requirements": "",
         "skills": ["Go", "gRPC"],
         "level": "senior",
     }
+    assert "Go-разработчик" in action["proposal"]["summary"]
     vacancies = (await client.get("/api/vacancies", headers=bearer(recruiter_owner))).json()
-    assert [(v["title"], v["status"], v["skills"]) for v in vacancies] == [
-        ("Go-разработчик", "draft", ["Go", "gRPC"])
-    ]
-    assert action["result"]["id"] == vacancies[0]["id"]
+    assert vacancies == []
+    # Подтверждение идёт через обычный продуктовый API с теми же параметрами.
+    created = await client.post(
+        "/api/vacancies", json=action["proposal"]["params"], headers=bearer(recruiter_owner)
+    )
+    assert created.status_code == 201
+    assert (created.json()["title"], created.json()["status"], created.json()["skills"]) == (
+        "Go-разработчик",
+        "draft",
+        ["Go", "gRPC"],
+    )
 
 
 async def test_generate_questions_only_proposes(client: AsyncClient) -> None:

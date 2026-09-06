@@ -4,6 +4,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from leonit.accounts.deps import CurrentActor
 from leonit.accounts.models import Organization
@@ -30,6 +32,7 @@ from leonit.candidates.service import (
 from leonit.core.deps import DbSession
 from leonit.core.rate_limit import SlidingWindowRateLimiter
 from leonit.core.time import aware
+from leonit.evaluation.models import Evaluation, EvaluationStatus
 from leonit.legal.service import consent_documents
 from leonit.vacancies.models import Vacancy
 
@@ -66,9 +69,20 @@ def candidate_out(candidate: Candidate) -> CandidateOut:
 
 
 def interview_out(
-    interview: Interview, vacancy_title: str, link: str | None = None
+    interview: Interview,
+    vacancy_title: str,
+    link: str | None = None,
+    evaluation: Evaluation | None = None,
 ) -> InterviewOut:
+    done = evaluation if evaluation and evaluation.status == EvaluationStatus.done else None
+    output = done.output if done and isinstance(done.output, dict) else {}
+    confidence = output.get("confidence") if done else None
     return InterviewOut(
+        fit_score=done.fit_score if done else None,
+        recommendation=done.recommendation if done else None,
+        confidence=float(confidence) if isinstance(confidence, (int, float)) else None,
+        quotes_found=done.quotes_found if done else None,
+        quotes_total=done.quotes_total if done else None,
         id=str(interview.id),
         status=interview.status.value,  # type: ignore[arg-type]
         vacancy_id=str(interview.vacancy_id),
@@ -176,7 +190,23 @@ async def list_interviews(
 ) -> list[InterviewOut]:
     interviews = await InterviewService(session).list(actor, vacancy_id=vacancy_id)
     titles = await vacancy_titles(session, interviews)
-    return [interview_out(i, titles.get(i.vacancy_id, "")) for i in interviews]
+    evaluations = await evaluations_by_interview(session, [i.id for i in interviews])
+    return [
+        interview_out(i, titles.get(i.vacancy_id, ""), evaluation=evaluations.get(i.id))
+        for i in interviews
+    ]
+
+
+async def evaluations_by_interview(
+    session: AsyncSession, interview_ids: list[UUID]
+) -> dict[UUID, Evaluation]:
+    """Готовые заключения одним запросом — списку кандидатов нужны балл и рекомендация."""
+    if not interview_ids:
+        return {}
+    rows = await session.scalars(
+        select(Evaluation).where(Evaluation.interview_id.in_(interview_ids))
+    )
+    return {row.interview_id: row for row in rows}
 
 
 @interviews_router.post("", response_model=InterviewOut, status_code=status.HTTP_201_CREATED)

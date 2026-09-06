@@ -7,11 +7,13 @@ import { Loader2, RefreshCw, XCircle } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CopyField, InviteDialog } from "@/components/candidates/invite-dialog";
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
+import { RecommendationBadge } from "@/components/reports/evaluation-view";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { interviewsApi, type Interview } from "@/lib/api/candidates";
 import { ApiError } from "@/lib/api/client";
+import { DECISION_LABELS, type Decision, type Recommendation } from "@/lib/api/reports";
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
@@ -19,6 +21,26 @@ function formatDate(value: string | null): string {
 }
 
 const OPEN_STATUSES = new Set(["invited", "opened", "consented", "in_progress", "expired"]);
+/** Интервью пройдено: заключение либо готово, либо готовится. */
+const AWAITING_STATUSES = new Set(["completed", "processing"]);
+
+/** Балл, рекомендация, уверенность и цитаты — чтобы список был рабочим без перехода в карточку. */
+function ScoreCell({ interview }: { interview: Interview }) {
+  if (interview.recommendation) {
+    return (
+      <div className="space-y-1">
+        <RecommendationBadge value={interview.recommendation as Recommendation} score={interview.fit_score ?? null} />
+        <div className="text-xs text-muted-foreground">
+          {typeof interview.confidence === "number" ? `уверенность ${Math.round(interview.confidence * 100)} %` : null}
+          {typeof interview.confidence === "number" && interview.quotes_total ? " · " : null}
+          {interview.quotes_total ? `цитаты ${interview.quotes_found ?? 0}/${interview.quotes_total}` : null}
+        </div>
+      </div>
+    );
+  }
+  if (AWAITING_STATUSES.has(interview.status)) return <RecommendationBadge value={null} score={null} />;
+  return <span className="text-sm text-muted-foreground">—</span>;
+}
 
 export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?: string; showVacancy?: boolean }) {
   const { can } = useAuth();
@@ -79,6 +101,8 @@ export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?
                 <TableHead>Кандидат</TableHead>
                 {showVacancy ? <TableHead>Вакансия</TableHead> : null}
                 <TableHead>Статус</TableHead>
+                <TableHead>Оценка</TableHead>
+                <TableHead>Решение</TableHead>
                 <TableHead>Приглашён</TableHead>
                 <TableHead>До</TableHead>
                 <TableHead />
@@ -105,6 +129,12 @@ export function InterviewsTable({ vacancyId, showVacancy = false }: { vacancyId?
                   ) : null}
                   <TableCell>
                     <InterviewStatusBadge status={interview.status} />
+                  </TableCell>
+                  <TableCell>
+                    <ScoreCell interview={interview} />
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {interview.decision ? (DECISION_LABELS[interview.decision as Decision] ?? interview.decision) : "—"}
                   </TableCell>
                   <TableCell className="text-sm">{formatDate(interview.invited_at)}</TableCell>
                   <TableCell className="text-sm">{formatDate(interview.expires_at)}</TableCell>

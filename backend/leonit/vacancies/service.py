@@ -80,6 +80,9 @@ class VacancyService:
             requirements=payload.requirements,
             skills=payload.skills,
             level=payload.level,
+            # Аватар — по умолчанию, если провайдер настроен: интервьюер с лицом и
+            # голосом вместо озвучки без видео. Выключается в настройках вакансии.
+            avatar_enabled=avatar_available(),
         )
         self.session.add(vacancy)
         await self.session.commit()

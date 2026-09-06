@@ -126,8 +126,13 @@ export const vacanciesApi = {
   list: (status?: VacancyStatus) =>
     apiFetch<VacancyListItem[]>(`/vacancies${status ? `?status=${status}` : ""}`),
   get: (id: string) => apiFetch<Vacancy>(`/vacancies/${id}`),
-  create: (body: { title: string; description?: string; requirements?: string }) =>
-    apiFetch<Vacancy>("/vacancies", { method: "POST", body }),
+  create: (body: {
+    title: string;
+    description?: string;
+    requirements?: string;
+    skills?: string[];
+    level?: VacancyLevel | null;
+  }) => apiFetch<Vacancy>("/vacancies", { method: "POST", body }),
   quickFromText: (text: string) =>
     apiFetch<VacancyQuickResult>("/vacancies/quick", { method: "POST", body: { text } }),
   quickFromFile: (file: File) => {

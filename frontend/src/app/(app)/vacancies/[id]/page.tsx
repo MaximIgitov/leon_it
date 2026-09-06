@@ -2,9 +2,10 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { DATA_CHANGED_EVENT } from "@/components/assistant/assistant-panel";
+import { openAssistant } from "@/components/assistant/dock";
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
 import { InterviewsTable } from "@/components/candidates/interviews-table";
@@ -15,10 +16,13 @@ import { RubricEditor } from "@/components/vacancies/rubric-editor";
 import { SettingsEditor } from "@/components/vacancies/settings-editor";
 import { VacancyDescriptionEditor, VacancyStatusActions } from "@/components/vacancies/vacancy-editors";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api/client";
 import { VACANCY_STATUS_LABELS, vacanciesApi, type Vacancy } from "@/lib/api/vacancies";
+
+const TABS = new Set(["description", "rubric", "questions", "settings", "candidates", "ranking", "metrics"]);
 
 export default function VacancyPage() {
   const params = useParams<{ id: string }>();
@@ -26,6 +30,14 @@ export default function VacancyPage() {
   const { toast } = useToast();
   const [vacancy, setVacancy] = useState<Vacancy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState("description");
+
+  useEffect(() => {
+    // Ссылки из ассистента ведут на конкретную вкладку: /vacancies/<id>?tab=questions.
+    if (typeof window === "undefined") return;
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    if (wanted && TABS.has(wanted)) setTab(wanted);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -90,13 +102,27 @@ export default function VacancyPage() {
             <Badge variant={vacancy.status === "published" ? "default" : "secondary"}>
               {VACANCY_STATUS_LABELS[vacancy.status]}
             </Badge>
+            {editable ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  openAssistant({
+                    prompt: `Помоги с вакансией «${vacancy.title}»: проверь описание, составь рубрику компетенций и вопросы интервью.`,
+                  })
+                }
+              >
+                <Sparkles className="mr-2 h-4 w-4 text-primary" />
+                Собрать с ИИ
+              </Button>
+            ) : null}
             {can("vacancy.write") ? (
               <VacancyStatusActions vacancy={vacancy} onChange={setVacancy} onError={notifyError} />
             ) : null}
           </div>
         }
       />
-      <Tabs defaultValue="description">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="description">Описание</TabsTrigger>
           <TabsTrigger value="rubric">Рубрика ({vacancy.rubric.length})</TabsTrigger>

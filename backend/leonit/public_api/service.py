@@ -73,13 +73,11 @@ def api_interview(
     link: str | None = None,
 ) -> ApiInterview:
     fit_score, recommendation = _scores(evaluation)
-    # Та же карточка, что в кабинете, плюс итог оценки; поля, которых нет в v1
-    # (например, current_question_index), схема отбрасывает.
-    return ApiInterview(
-        **interview_out(interview, vacancy_title, link).model_dump(),
-        fit_score=fit_score,
-        recommendation=recommendation,  # type: ignore[arg-type]
-    )
+    # Та же карточка, что в кабинете, плюс итог оценки из переданного заключения;
+    # поля, которых нет в v1 (например, current_question_index), схема отбрасывает.
+    base = interview_out(interview, vacancy_title, link).model_dump()
+    base.update(fit_score=fit_score, recommendation=recommendation)
+    return ApiInterview(**base)
 
 
 class PublicApiService:
