@@ -1,28 +1,30 @@
 "use client";
 
-import { AssistantPanel } from "@/components/assistant/assistant-panel";
-import { ASSISTANT_DOCK_WIDTH, AssistantDockProvider, useAssistantDock } from "@/components/assistant/dock";
-import { RequireAuth } from "@/components/auth/auth-provider";
+import { AssistantPanel, AssistantTrigger } from "@/components/assistant/assistant-panel";
+import { AssistantDockProvider } from "@/components/assistant/dock";
+import { RequireAuth, useAuth } from "@/components/auth/auth-provider";
 import { AppShell } from "@/components/layout/app-shell";
 import { UserMenu } from "@/components/layout/user-menu";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
+import { HiringJourneyProvider, HiringJourneyTrigger } from "@/components/onboarding/hiring-journey";
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const { open } = useAssistantDock();
-  // На узких экранах панель раскрывается поверх страницы, сдвигать нечего.
-  const isMobile = useIsMobile(1024);
+  const { me } = useAuth();
   return (
+    <HiringJourneyProvider key={`${me?.organization.id}:${me?.id}`}>
     <AppShell
       header={
         <div className="ml-auto flex items-center gap-2">
-          <AssistantPanel />
+          <ThemeSwitch />
+          <AssistantTrigger />
         </div>
       }
-      sidebarFooter={(collapsed) => <UserMenu compact={collapsed} />}
-      rightInset={open && !isMobile ? ASSISTANT_DOCK_WIDTH : 0}
+      sidebarFooter={(collapsed, onNavigate) => <><HiringJourneyTrigger compact={collapsed} onOpen={onNavigate} /><UserMenu compact={collapsed} /></>}
+      assistant={<AssistantPanel />}
     >
       {children}
     </AppShell>
+    </HiringJourneyProvider>
   );
 }
 

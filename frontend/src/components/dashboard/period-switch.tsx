@@ -14,7 +14,7 @@ export function PeriodSwitch({
 }) {
   return (
     <Tabs value={value} onValueChange={(next) => onChange(next as DashboardPeriod)}>
-      <TabsList aria-label="Период" className="h-9">
+      <TabsList aria-label="Период" className="period-switch">
         {PERIODS.map((period) => (
           <TabsTrigger key={period} value={period} className="px-2.5 text-xs sm:px-3 sm:text-sm">
             {PERIOD_LABELS[period]}

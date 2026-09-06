@@ -36,7 +36,7 @@ function Breakdown({
           <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{empty}</p>
         ) : (
           <>
-            <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={title}>
+            <div className="flex h-4 w-full overflow-hidden rounded-full bg-secondary" role="img" aria-label={title}>
               {slices
                 .filter((slice) => slice.value > 0)
                 .map((slice) => (
@@ -48,7 +48,7 @@ function Breakdown({
                   />
                 ))}
             </div>
-            <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
+            <ul className="mt-4 flex flex-col gap-3">
               {slices.map((slice) => (
                 <li key={slice.key} className="flex items-center justify-between gap-2 text-sm">
                   <span className="flex items-center gap-2">
@@ -75,11 +75,11 @@ export function RecommendationCard({ breakdown }: { breakdown: RecommendationBre
   return (
     <Breakdown
       title="Рекомендации ИИ"
-      description="Выводятся из баллов по рубрике по порогам"
+      description="По результатам интервью"
       empty="Заключений за период ещё нет."
       slices={[
-        { key: "fit", label: "Подходит", value: breakdown.fit, className: "bg-success" },
-        { key: "needs_check", label: "Нужна проверка", value: breakdown.needs_check, className: "bg-warning" },
+        { key: "fit", label: "Подходит", value: breakdown.fit, className: "bg-brand-green" },
+        { key: "needs_check", label: "Нужна проверка", value: breakdown.needs_check, className: "bg-orange" },
         { key: "no_fit", label: "Не подходит", value: breakdown.no_fit, className: "bg-destructive" },
       ]}
     />
@@ -90,13 +90,13 @@ export function DecisionCard({ breakdown }: { breakdown: DecisionBreakdown }) {
   return (
     <Breakdown
       title="Решения"
-      description="Что решили рекрутеры и нанимающие менеджеры"
+      description="Следующий шаг за командой"
       empty="Завершённых интервью за период ещё нет."
       slices={[
-        { key: "advance", label: "Дальше", value: breakdown.advance, className: "bg-success" },
-        { key: "hold", label: "На паузе", value: breakdown.hold, className: "bg-warning" },
+        { key: "advance", label: "Дальше", value: breakdown.advance, className: "bg-brand-green" },
+        { key: "hold", label: "На паузе", value: breakdown.hold, className: "bg-orange" },
         { key: "reject", label: "Отказ", value: breakdown.reject, className: "bg-destructive" },
-        { key: "pending", label: "Ждут решения", value: breakdown.pending, className: "bg-muted-foreground/40" },
+        { key: "pending", label: "Ждут решения", value: breakdown.pending, className: "bg-secondary-foreground/40" },
       ]}
     />
   );

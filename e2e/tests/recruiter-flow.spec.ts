@@ -4,7 +4,7 @@ import { completeInterview, getInterview, seedInterview } from "./api";
 
 /*
  * Регрессия кабинета: рекрутер проходит путь после интервью — карточка с
- * заключением, вкладка достоверности, решение, ссылка для нанимающего
+ * отчётом, вкладка проверки записи, решение, ссылка для нанимающего
  * менеджера и дашборд. Интервью заполняется через API (кандидатский путь
  * проверяет candidate-flow), поэтому сценарий быстрый и не зависит от камеры.
  */
@@ -16,20 +16,20 @@ async function login(page: import("@playwright/test").Page, email: string, passw
   await page.getByLabel("Пароль").fill(password);
   await page.getByRole("button", { name: "Войти" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
-  // Дашборд должен дорисоваться и дозапросить данные до следующего goto: если
-  // прервать клиентский переход Next на середине, роутер делает жёсткий
-  // переход на /dashboard и отменяет нашу навигацию (заметно в WebKit).
-  // networkidle здесь не помогает: он относится к документу /login.
-  await expect(page.getByRole("heading", { name: "Дашборд" })).toBeVisible();
+  // Обзор должен дорисоваться и дозапросить данные до следующего goto: если
+  // прервать клиентский переход роутера на середине, он может отменить нашу
+  // навигацию (заметно в WebKit). networkidle здесь не помогает: он относится
+  // к документу /login.
+  await expect(page.getByRole("heading", { name: "Приглашено" })).toBeVisible();
   await expect(page.getByText("Воронка", { exact: true })).toBeVisible();
   await page.waitForTimeout(750);
 }
 
 /**
- * Полная навигация после клиентского перехода Next. В dev-режиме роутер может
- * ответить на прерванный fetch жёстким переходом на текущую страницу
- * («interrupted by another navigation», воспроизводится в WebKit) — тогда
- * дожидаемся его и повторяем переход один раз.
+ * Полная навигация после клиентского перехода. Роутер может ответить на
+ * прерванный fetch жёстким переходом на текущую страницу («interrupted by
+ * another navigation», воспроизводится в WebKit) — тогда дожидаемся его и
+ * повторяем переход один раз.
  */
 async function gotoSettled(page: import("@playwright/test").Page, url: string) {
   try {
@@ -57,23 +57,24 @@ test("рекрутер работает с заключением, достов�
   await gotoSettled(page, `/vacancies/${seed.vacancyId}/interviews/${seed.interviewId}`);
   await expect(page.getByRole("heading", { name: "Иван Кандидат" })).toBeVisible();
 
-  // Заключение: резюме и баллы по компетенциям.
-  await page.getByRole("tab", { name: "Заключение" }).click();
-  await expect(page.getByText("Компетенции")).toBeVisible({ timeout: 30_000 });
+  // Отчёт: общее впечатление и разбор по критериям вакансии.
+  await page.getByRole("tab", { name: "Отчёт" }).click();
+  await expect(page.getByText("Общее впечатление")).toBeVisible({ timeout: 30_000 });
 
-  // Достоверность: наблюдений нет, но панель показывает проверку.
-  await page.getByRole("tab", { name: /Достоверность/ }).click();
-  await expect(page.getByText("Достоверность записи")).toBeVisible();
+  // Проверка записи: наблюдений нет, но панель объясняет, что проверялось.
+  await page.getByRole("tab", { name: /Проверка записи/ }).click();
+  await expect(page.getByRole("heading", { name: "Что проверяет Леон" })).toBeVisible();
 
-  // Решение по кандидату сохраняется и видно в статусе.
+  // Решение по кандидату сохраняется и видно в панели.
   await page.getByRole("tab", { name: "Решение и заметки" }).click();
-  await page.getByRole("button", { name: "Дальше", exact: true }).click();
-  await expect(page.getByText(/Текущее: Дальше/)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: /Следующий этап/ }).click();
+  await page.getByRole("button", { name: "Сохранить решение" }).click();
+  await expect(page.getByText(/Сохранено: Дальше/)).toBeVisible({ timeout: 15_000 });
 
   // Ссылка для нанимающего менеджера открывается в отдельной вкладке без входа.
   await page.getByRole("tab", { name: "Доступ" }).click();
-  await page.getByPlaceholder(/Кому/).fill("Тимлид Петров");
-  await page.getByRole("button", { name: "Создать" }).click();
+  await page.getByLabel("Для кого").fill("Тимлид Петров");
+  await page.getByRole("button", { name: "Создать ссылку" }).click();
   const link = page.locator("input[readonly]").first();
   await expect(link).toBeVisible({ timeout: 15_000 });
   const url = await link.inputValue();
@@ -87,7 +88,7 @@ test("рекрутер работает с заключением, достов�
     await guest.close();
   }
 
-  // Дашборд: воронка учитывает завершённое интервью.
+  // Обзор: воронка учитывает завершённое интервью.
   await gotoSettled(page, "/dashboard");
-  await expect(page.getByText("Приглашены")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Завершили интервью" })).toBeVisible({ timeout: 30_000 });
 });

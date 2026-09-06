@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/lib/router";
 import { useEffect, useState } from "react";
 import { Bot, User, UserRound } from "lucide-react";
 
@@ -44,14 +44,14 @@ export function HhDialogThread({ messages }: { messages: HhDialogMessage[] }) {
         return (
           <li key={message.hh_message_id ?? index} className={cn("flex gap-2", mine ? "justify-start" : "justify-end")}>
             {mine ? (
-              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center text-primary">
                 <Icon className="h-4 w-4" />
               </span>
             ) : null}
             <div
               className={cn(
                 "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
-                mine ? "rounded-tl-sm bg-muted" : "rounded-tr-sm bg-primary text-primary-foreground",
+                mine ? "rounded-tl-sm bg-secondary" : "rounded-tr-sm bg-accent text-accent-foreground",
               )}
             >
               <div className={cn("mb-0.5 text-[11px]", mine ? "text-muted-foreground" : "text-primary-foreground/80")}>
@@ -61,7 +61,7 @@ export function HhDialogThread({ messages }: { messages: HhDialogMessage[] }) {
               <p className="whitespace-pre-wrap break-words">{message.text}</p>
             </div>
             {!mine ? (
-              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center text-primary">
                 <Icon className="h-4 w-4" />
               </span>
             ) : null}

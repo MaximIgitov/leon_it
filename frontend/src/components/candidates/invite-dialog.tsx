@@ -1,7 +1,9 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useEffect, useState } from "react";
-import { Check, Copy, Loader2, Send } from "lucide-react";
+import { Check, Copy, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -89,6 +91,7 @@ export function InviteDialog({
         email: email.trim(),
       });
       setResult({ link: interview.link ?? undefined, summary: "Приглашение отправлено на e-mail." });
+      toast({ title: "Приглашение отправлено", celebrate: true });
       onInvited?.(interview);
     } catch (error) {
       fail(error, "Не удалось пригласить кандидата");
@@ -101,6 +104,7 @@ export function InviteDialog({
     setPending(true);
     try {
       const outcome = await candidatesApi.bulkCreate({ text: bulk, vacancy_id: selectedVacancy });
+      if (outcome.invited > 0) toast({ title: `Приглашения отправлены: ${outcome.invited}`, celebrate: true });
       setResult({
         summary: `Приглашено: ${outcome.invited}. Новых кандидатов: ${outcome.created.length}, уже были: ${outcome.existing.length}${outcome.skipped_lines ? `, строк без e-mail: ${outcome.skipped_lines}` : ""}.`,
       });
@@ -187,7 +191,7 @@ export function InviteDialog({
                   disabled={pending || !selectedVacancy || !fullName.trim() || !email.trim()}
                   onClick={inviteOne}
                 >
-                  {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <Send className="mr-2 h-4 w-4" />}
                   Пригласить
                 </Button>
               </TabsContent>
@@ -203,7 +207,7 @@ export function InviteDialog({
                   />
                 </div>
                 <Button className="w-full" disabled={pending || !selectedVacancy || !bulk.trim()} onClick={inviteMany}>
-                  {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <Send className="mr-2 h-4 w-4" />}
                   Добавить и пригласить
                 </Button>
               </TabsContent>

@@ -1,9 +1,12 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Camera, Check, Loader2, Mic, Play, RefreshCw, Square } from "lucide-react";
+import { AlertTriangle, Camera, Check, Mic, Play, RefreshCw, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -72,6 +75,9 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
   const [testUrl, setTestUrl] = useState<string | null>(null);
   const [heardOk, setHeardOk] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mounted = useRef(true);
+  const handedOff = useRef(false);
   const testRecorder = useRef<MediaRecorder | null>(null);
   const level = useMicLevel(stream);
 
@@ -81,10 +87,10 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
       setFailure(null);
       try {
         const next = await requestMedia(ids);
-        setStream((previous) => {
-          stopStream(previous);
-          return next;
-        });
+        if (!mounted.current) { stopStream(next); return; }
+        stopStream(streamRef.current);
+        streamRef.current = next;
+        setStream(next);
         const list = await listDevices();
         setDevices(list);
         const videoTrack = next.getVideoTracks()[0];
@@ -106,10 +112,19 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
       return;
     }
     void acquire();
-    // Поток отдаём в комнату при переходе, поэтому здесь его не останавливаем.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const recorder = testRecorder.current;
+      if (recorder?.state === "recording") { recorder.onstop = null; recorder.stop(); }
+      if (!handedOff.current) stopStream(streamRef.current);
+    };
+  }, []);
   useEffect(() => {
     const video = videoRef.current;
     if (video && stream) {
@@ -165,7 +180,7 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
         </div>
         {failure.kind !== "insecure" && failure.kind !== "unsupported" ? (
           <Button onClick={() => acquire()} disabled={requesting}>
-            {requesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {requesting ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Проверить снова
           </Button>
         ) : null}
@@ -180,7 +195,7 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
           <video ref={videoRef} muted playsInline autoPlay className="aspect-video w-full object-cover" />
           {!stream ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Запрашиваем доступ к камере…
+              <Skeleton className="mr-2 h-4 w-4 rounded-md" /> Запрашиваем доступ к камере…
             </div>
           ) : null}
         </div>
@@ -218,7 +233,7 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
                 ))}
               </SelectContent>
             </Select>
-            <div className="h-2 overflow-hidden rounded-full bg-muted" aria-label="Уровень микрофона">
+            <div className="h-2 overflow-hidden rounded-full bg-secondary" aria-label="Уровень микрофона">
               <div
                 className={`h-full transition-[width] duration-75 ${level > 0.6 ? "bg-warning" : "bg-success"}`}
                 style={{ width: `${Math.round(level * 100)}%` }}
@@ -256,10 +271,6 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
         {testUrl ? (
           <div className="mt-3 space-y-2">
             <video src={testUrl} controls playsInline className="w-full max-w-sm rounded-md bg-black" />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={heardOk} onChange={(e) => setHeardOk(e.target.checked)} />
-              Меня видно и слышно
-            </label>
           </div>
         ) : null}
       </div>
@@ -268,11 +279,16 @@ export function DeviceCheck({ onReady }: { onReady: (result: DeviceCheckResult) 
         size="lg"
         className="w-full"
         disabled={!stream || !heardOk}
-        onClick={() => stream && onReady({ stream, environment, devices, virtualCamera })}
+        onClick={() => { if (stream) { handedOff.current = true; onReady({ stream, environment, devices, virtualCamera }); } }}
       >
         <Check className="mr-2 h-4 w-4" />
         Всё готово — к интервью
       </Button>
+      <div className="flex justify-center py-1">
+        <Checkbox checked={heardOk} onCheckedChange={setHeardOk} disabled={!testUrl}>
+          Меня видно и слышно
+        </Checkbox>
+      </div>
       {!heardOk ? (
         <p className="text-center text-xs text-muted-foreground">
           Сделайте пробную запись и подтвердите, что вас видно и слышно.

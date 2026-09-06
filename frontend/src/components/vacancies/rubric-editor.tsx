@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { SaveBar, type EditorProps } from "@/components/vacancies/vacancy-editors";
 import { Button } from "@/components/ui/button";
@@ -72,15 +72,14 @@ export function RubricEditor({ vacancy, editable, onSaved, onError }: EditorProp
   };
 
   return (
-    <Card>
+    <Card className="rubric-editor">
       <CardHeader>
         <CardTitle>Рубрика компетенций</CardTitle>
         <CardDescription>
-          По этим компетенциям модель ставит баллы 1–4. Якорные описания уровней делают оценку
-          воспроизводимой: без них модель трактует «хорошо» по-своему. Вес задаёт вклад в общий балл.
+          Задайте навыки, уровни оценки от 1 до 4 и вес каждого навыка.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="vacancy-form-content">
         {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Компетенций пока нет. Обычно достаточно 3–6: например, «Python», «Базы данных»,
@@ -88,11 +87,14 @@ export function RubricEditor({ vacancy, editable, onSaved, onError }: EditorProp
           </p>
         ) : null}
         {items.map((item, index) => (
-          <div key={item.id || index} className="rounded-lg border p-4">
-            <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto]">
+          <details key={item.id || index} className="rubric-item" open={index === 0}>
+            <summary><span className="rubric-index">{String(index + 1).padStart(2, "0")}</span><strong>{item.name || "Новый критерий"}</strong><span className="rubric-weight">Вес {item.weight}</span><ChevronDown size={18} /></summary>
+            <div className="rubric-fields">
+            <div className="rubric-name-row">
               <div className="space-y-1.5">
-                <Label>Компетенция</Label>
+                <Label htmlFor={`rubric-name-${item.id}`}>Название критерия</Label>
                 <Input
+                  id={`rubric-name-${item.id}`}
                   value={item.name}
                   placeholder="Название"
                   disabled={!editable}
@@ -123,16 +125,17 @@ export function RubricEditor({ vacancy, editable, onSaved, onError }: EditorProp
                   variant="ghost"
                   size="icon"
                   className="self-end"
-                  aria-label="Удалить компетенцию"
+                  aria-label={`Удалить критерий ${item.name || index + 1}`}
                   onClick={() => setItems(items.filter((_, i) => i !== index))}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
             </div>
-            <div className="mt-3 space-y-1.5">
-              <Label>Что оцениваем</Label>
+            <div className="space-y-2">
+              <Label htmlFor={`rubric-description-${item.id}`}>Что оцениваем</Label>
               <Textarea
+                id={`rubric-description-${item.id}`}
                 rows={2}
                 value={item.description}
                 disabled={!editable}
@@ -140,11 +143,13 @@ export function RubricEditor({ vacancy, editable, onSaved, onError }: EditorProp
                 onChange={(e) => update(index, { description: e.target.value })}
               />
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rubric-levels">
               {["1", "2", "3", "4"].map((level) => (
-                <div key={level} className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Уровень {level}</Label>
-                  <Input
+                <div key={level} className="rubric-level">
+                  <Label htmlFor={`rubric-${item.id}-${level}`}>Уровень {level}</Label>
+                  <Textarea
+                    id={`rubric-${item.id}-${level}`}
+                    rows={2}
                     value={item.levels[level] ?? ""}
                     placeholder={LEVEL_HINTS[level]}
                     disabled={!editable}
@@ -153,13 +158,14 @@ export function RubricEditor({ vacancy, editable, onSaved, onError }: EditorProp
                 </div>
               ))}
             </div>
-          </div>
+            </div>
+          </details>
         ))}
         {editable ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="editor-save-bar flex flex-wrap items-center justify-between gap-3">
             <Button variant="outline" onClick={add}>
               <Plus className="mr-2 h-4 w-4" />
-              Добавить компетенцию
+              Добавить критерий
             </Button>
             <SaveBar pending={pending} dirty={dirty} onSave={save} onReset={() => setItems(vacancy.rubric)} />
           </div>

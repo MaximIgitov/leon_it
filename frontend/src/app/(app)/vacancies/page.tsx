@@ -1,12 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useRouter } from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { Briefcase, Loader2, MessageSquare, Plus, Sparkles } from "lucide-react";
+import { MessageSquare, Plus, Sparkles } from "lucide-react";
 
 import { openAssistant } from "@/components/assistant/dock";
 import { useAuth } from "@/components/auth/auth-provider";
+import { Mascot } from "@/components/brand/mascot";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,10 +96,9 @@ function CreateVacancyDialog() {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новая вакансия</DialogTitle>
+          <DialogTitle className="font-extrabold">Новая вакансия</DialogTitle>
           <DialogDescription>
-            С ИИ — из текста или из разговора с ассистентом. Вручную — пустая вакансия, которую вы
-            заполните сами.
+            Расскажите, кого ищете. Леон поможет с вопросами.
           </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="ai">
@@ -107,10 +109,6 @@ function CreateVacancyDialog() {
             <TabsTrigger value="manual">Вручную</TabsTrigger>
           </TabsList>
           <TabsContent value="ai" className="space-y-4 pt-4">
-            <p className="text-sm text-muted-foreground">
-              ИИ прочитает текст и соберёт уровень, навыки, рубрику компетенций с якорными уровнями
-              и вопросы интервью. Вы проверите и поправите их на странице вакансии.
-            </p>
             <div className="space-y-2">
               <Label htmlFor="vacancy-source">Текст вакансии</Label>
               <Textarea
@@ -149,16 +147,12 @@ function CreateVacancyDialog() {
                 onClick={submitQuick}
                 disabled={pending || (!sourceFile && sourceText.trim().length < 20)}
               >
-                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 Собрать с ИИ
               </Button>
             </DialogFooter>
           </TabsContent>
           <TabsContent value="manual" className="space-y-4 pt-4">
-            <p className="text-sm text-muted-foreground">
-              Пустая вакансия с названием и описанием. Рубрику и вопросы потом можно собрать с ИИ
-              кнопкой «Собрать с ИИ» на странице вакансии.
-            </p>
             <div className="space-y-2">
               <Label htmlFor="vacancy-title">Название</Label>
               <Input
@@ -180,7 +174,7 @@ function CreateVacancyDialog() {
             </div>
             <DialogFooter>
               <Button onClick={submit} disabled={pending || !title.trim()}>
-                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
                 Создать
               </Button>
             </DialogFooter>
@@ -197,10 +191,14 @@ export default function VacanciesPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [items, setItems] = useState<VacancyListItem[] | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       setItems(await vacanciesApi.list(filter === "all" ? undefined : filter));
     } catch (error) {
+      setLoadError(error instanceof ApiError ? error.message : "Не удалось загрузить вакансии");
       toast({
         variant: "destructive",
         title: error instanceof ApiError ? error.message : "Не удалось загрузить вакансии",
@@ -216,7 +214,7 @@ export default function VacanciesPage() {
     <>
       <PageHeader
         title="Вакансии"
-        description="Описание, требования, рубрика и вопросы интервью для каждой позиции."
+        description="Вакансии вашей команды."
         actions={can("vacancy.write") ? <CreateVacancyDialog /> : undefined}
       />
       <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)} className="mb-4">
@@ -228,30 +226,23 @@ export default function VacanciesPage() {
         </TabsList>
       </Tabs>
 
-      {items === null ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      {loadError ? <div className="empty-state" role="alert"><Mascot name="think" /><h2>Не получилось загрузить</h2><p>{loadError}</p><Button variant="outline" onClick={() => void load()}>Попробовать снова</Button></div> : items === null ? (
+        <RowsSkeleton />
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-10 text-center">
-          <Briefcase className="mx-auto h-8 w-8 text-muted-foreground" />
-          <p className="mt-3 font-medium">Вакансий пока нет</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Быстрее всего — «Новая вакансия → С помощью ИИ»: вставьте текст, ИИ соберёт рубрику и
-            вопросы, и через несколько минут можно приглашать кандидатов.
-          </p>
-        </div>
+        <div className="empty-state"><Mascot name={filter === "all" ? "mira" : "think"} /><h2>{filter === "all" ? "Создайте первую вакансию" : "Вакансий пока нет"}</h2><p>{filter === "all" ? "Создайте вакансию. Леон поможет подготовить вопросы." : "Вакансий с таким статусом пока нет."}</p></div>
       ) : (
         <ul className="grid gap-3">
           {items.map((item) => (
             <li key={item.id}>
               <Link
                 href={`/vacancies/${item.id}`}
-                className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/40"
+                className="vacancy-row"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{item.title}</span>
                     {item.level ? (
-                      <span className="text-sm text-muted-foreground">{LEVEL_LABELS[item.level]}</span>
+                      <span className="vacancy-row-meta text-sm">{LEVEL_LABELS[item.level]}</span>
                     ) : null}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1.5">
@@ -262,7 +253,7 @@ export default function VacanciesPage() {
                     ))}
                   </div>
                 </div>
-                <div className="text-sm text-muted-foreground">
+                <div className="vacancy-row-meta text-sm">
                   {item.question_count}{" "}
                   {item.question_count === 1 ? "вопрос" : item.question_count < 5 ? "вопроса" : "вопросов"}
                 </div>

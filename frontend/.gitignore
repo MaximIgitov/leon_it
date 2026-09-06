@@ -1,6 +1,7 @@
-/.next/
-/out/
 /node_modules/
-next-env.d.ts
+/.output/
+/.tanstack/
+/dist/
+/src/routeTree.gen.ts
 *.tsbuildinfo
 .env*.local

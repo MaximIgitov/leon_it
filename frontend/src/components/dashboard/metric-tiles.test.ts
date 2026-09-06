@@ -39,40 +39,31 @@ function tile(data: DashboardOverview, label: string) {
 describe("плитки дашборда", () => {
   it("рисует все плитки, включая доверие к цитатам", () => {
     expect(tiles(base)).toHaveLength(TILE_COUNT);
-    const quotes = tile(base, "Цитаты подтверждены");
+    const quotes = tile(base, "Точность цитат");
     expect(quotes.value).toBe("67 %");
-    expect(quotes.hint).toBe("1 заключение с неподтверждёнными цитатами");
+    expect(quotes.hint).toBe("Подтверждены ответами кандидатов");
   });
 
-  it("склоняет число заключений с неподтверждёнными цитатами", () => {
-    expect(tile({ ...base, unverified_quotes_evaluations: 3 }, "Цитаты подтверждены").hint).toBe(
-      "3 заключения с неподтверждёнными цитатами",
-    );
-    expect(tile({ ...base, unverified_quotes_evaluations: 5 }, "Цитаты подтверждены").hint).toBe(
-      "5 заключений с неподтверждёнными цитатами",
-    );
+  it("считает воронку от приглашённых", () => {
+    expect(tile(base, "Приглашено").value).toBe("7");
+    expect(tile(base, "Завершили интервью").value).toBe("4");
+    expect(tile(base, "Завершили интервью").hint).toBe("Из 7 приглашённых");
+    expect(tile(base, "Конверсия").value).toBe("57 %");
   });
 
-  it("объясняет пустое значение и полное подтверждение", () => {
-    const none = tile(
-      { ...base, quote_verification_rate: null, unverified_quotes_evaluations: 0 },
-      "Цитаты подтверждены",
-    );
-    expect(none.value).toBe("—");
-    expect(none.hint).toBe("заключений с цитатами пока нет");
-    const all = tile(
-      { ...base, quote_verification_rate: 1, unverified_quotes_evaluations: 0 },
-      "Цитаты подтверждены",
-    );
-    expect(all.value).toBe("100 %");
-    expect(all.hint).toBe("во всех заключениях цитаты найдены в транскрипте");
+  it("объясняет пустые значения прочерком", () => {
+    const empty = { ...base, quote_verification_rate: null, avg_fit_score: null, ai_agreement: null, evaluated: 0 };
+    expect(tile(empty, "Точность цитат").value).toBe("—");
+    expect(tile(empty, "Средний балл").value).toBe("—");
+    expect(tile(empty, "Согласие с ИИ").value).toBe("—");
+    expect(tile({ ...base, quote_verification_rate: 1 }, "Точность цитат").value).toBe("100 %");
   });
 
-  it("подсказка среднего балла зависит от числа заключений", () => {
-    expect(tile(base, "Средний балл").hint).toBe("оценено 3 интервью · до результата 4 ч");
-    expect(tile({ ...base, evaluated: 0, avg_fit_score: null }, "Средний балл").value).toBe("—");
-    expect(tile({ ...base, evaluated: 0, avg_fit_score: null }, "Средний балл").hint).toBe(
-      "заключений пока нет",
-    );
+  it("склоняет число оценённых интервью и решений", () => {
+    expect(tile(base, "Средний балл").hint).toBe("3 интервью оценены");
+    expect(tile({ ...base, evaluated: 1 }, "Средний балл").hint).toBe("1 интервью оценено");
+    expect(tile({ ...base, evaluated: 5 }, "Средний балл").hint).toBe("5 интервью оценены");
+    expect(tile(base, "Согласие с ИИ").hint).toBe("На основе 2 решений");
+    expect(tile({ ...base, ai_agreement_pairs: 1 }, "Согласие с ИИ").hint).toBe("На основе 1 решения");
   });
 });

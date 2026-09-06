@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Volume2 } from "lucide-react";
 
-import { LogoMark } from "@/components/brand/logo";
+import { Mascot } from "@/components/brand/mascot";
 import type { AvatarInfo, SnapshotQuestion } from "@/lib/api/room";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +32,7 @@ type Props = {
   variant?: "stage" | "compact";
   question: SnapshotQuestion | null;
   avatar: AvatarInfo | null;
-  audioRef: RefObject<HTMLAudioElement>;
+  audioRef: RefObject<HTMLAudioElement | null>;
   hasAudio: boolean;
   onReplay: () => void;
   /** Клип аватара дозвучал или не смог воспроизвестись: комната начинает слушать. */
@@ -51,7 +51,7 @@ type Props = {
   className?: string;
 };
 
-function useAudioSpeaking(audioRef: RefObject<HTMLAudioElement>, enabled: boolean, key: string): boolean {
+function useAudioSpeaking(audioRef: RefObject<HTMLAudioElement | null>, enabled: boolean, key: string): boolean {
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => {
     const audio = audioRef.current;
@@ -102,7 +102,7 @@ function ReplayButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       aria-label="Прослушать вопрос ещё раз"
-      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-secondary"
       onClick={onClick}
     >
       <Volume2 className="h-4 w-4" />
@@ -170,23 +170,13 @@ function FullStage({
             aria-label="ИИ-интервьюер LeonIT задаёт вопрос"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 via-background to-primary/5">
-            <div className="relative">
-              {speaking ? <span className="absolute inset-0 animate-pulse-ring rounded-full bg-primary/40" aria-hidden /> : null}
-              <div
-                className={cn(
-                  "relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-primary ring-8 transition-shadow sm:h-36 sm:w-36",
-                  speaking ? "ring-primary/30" : "ring-primary/10",
-                )}
-              >
-                <LogoMark size={72} />
-              </div>
-            </div>
+          <div className="interview-stage-art" data-speaking={speaking}>
+            <Mascot name={status === "thinking" || status === "saving" ? "think" : status === "listening" ? "listen" : "leo"} eager />
           </div>
         )}
 
-        <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
-          <span className="font-medium uppercase tracking-wide">ИИ-интервьюер LeonIT</span>
+        <div className="absolute left-3 top-3 interview-stage-status">
+          <span className="font-extrabold">Леон · ИИ-интервьюер</span>
           {label ? (
             <span className="normal-case tracking-normal opacity-90" aria-live="polite">
               · {label}
@@ -251,11 +241,11 @@ function CompactStage({ question, avatar, audioRef, hasAudio, onReplay, classNam
           {speaking ? <span className="absolute inset-0 animate-pulse-ring rounded-full bg-primary/40" aria-hidden /> : null}
           <div
             className={cn(
-              "relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-primary ring-4 transition-shadow",
+              "relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-green-soft ring-4 transition-shadow",
               speaking ? "ring-primary/30" : "ring-primary/10",
             )}
           >
-            <LogoMark size={56} />
+            <Mascot name="leo" eager />
           </div>
         </div>
       )}

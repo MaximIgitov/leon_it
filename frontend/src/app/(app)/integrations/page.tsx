@@ -1,10 +1,13 @@
 "use client";
 
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowRight, BookOpen, KeyRound, Loader2, Plus } from "lucide-react";
+import Link from "@/lib/router";
+import { ArrowRight, BookOpen, KeyRound, Plus } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
+import { Mascot } from "@/components/brand/mascot";
 import { CopyField } from "@/components/candidates/invite-dialog";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -177,24 +180,24 @@ function CreateTokenDialog({ onCreated }: { onCreated: (token: ApiToken) => void
                 {API_SCOPES.map((scope) => {
                   const id = `scope-${scope.value}`;
                   return (
-                    <label
+                    <div
                       key={scope.value}
-                      htmlFor={id}
-                      className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm hover:bg-muted/50"
+                      className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm hover:bg-secondary/50"
                     >
                       <Checkbox
                         id={id}
+                        aria-labelledby={`${id}-label`}
                         className="mt-0.5"
                         checked={scopes.includes(scope.value)}
                         onCheckedChange={(checked) => toggle(scope.value, checked === true)}
                       />
                       <span>
-                        <span className="font-medium">{scope.label}</span>
+                        <span id={`${id}-label`} className="font-medium">{scope.label}</span>
                         <span className="block text-xs text-muted-foreground">
                           {scope.description}
                         </span>
                       </span>
-                    </label>
+                    </div>
                   );
                 })}
               </div>
@@ -222,7 +225,7 @@ function CreateTokenDialog({ onCreated }: { onCreated: (token: ApiToken) => void
           ) : (
             <Button onClick={submit} disabled={pending || !name.trim() || scopes.length === 0}>
               {pending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Skeleton className="mr-2 h-4 w-4 rounded-md" />
               ) : (
                 <KeyRound className="mr-2 h-4 w-4" />
               )}
@@ -320,7 +323,7 @@ function ApiTokensCard() {
       <CardContent className="overflow-x-auto p-0">
         {tokens === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : tokens.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">
@@ -391,7 +394,7 @@ function QuickStartCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{example}</pre>
+        <pre className="overflow-x-auto rounded-lg bg-secondary p-3 text-xs">{example}</pre>
         <p className="text-sm text-muted-foreground">
           Типовой сценарий: выбрать опубликованную вакансию → пригласить кандидата (ссылка в
           ответе показывается один раз) → опрашивать статус интервью → забрать отчёт и
@@ -403,74 +406,37 @@ function QuickStartCard() {
   );
 }
 
-/** Интеграции с внешними системами живут на своих подстраницах; здесь — только вход. */
-function SeparatePageCard({ title, text, href }: { title: string; text: string; href: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{text}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button asChild variant="outline">
-          <Link href={href}>
-            Настраивается на отдельной странице
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function IntegrationsPage() {
   const { can } = useAuth();
-  const manages = can("api_tokens.manage");
-
-  return (
-    <>
-      <PageHeader
-        title="Интеграции"
-        description="Публичный API для ATS и скриптов, подключение HH.ru и Huntflow."
-        actions={<DocsLink />}
-      />
-      <Tabs defaultValue="api">
-        <TabsList>
-          <TabsTrigger value="api">API</TabsTrigger>
-          <TabsTrigger value="hh">HH.ru</TabsTrigger>
-          <TabsTrigger value="huntflow">Huntflow</TabsTrigger>
-        </TabsList>
-        <TabsContent value="api" className="mt-4 space-y-6">
-          {manages ? (
-            <ApiTokensCard />
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>API-токены</CardTitle>
-                <CardDescription>
-                  Выпуск и отзыв токенов доступны владельцу организации. Документация API открыта
-                  всем участникам.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          )}
-          <QuickStartCard />
-        </TabsContent>
-        <TabsContent value="hh" className="mt-4">
-          <SeparatePageCard
-            title="HH.ru"
-            text="Импорт вакансий и откликов, диалог с кандидатом в чате HH и ссылка на интервью."
-            href="/integrations/hh"
-          />
-        </TabsContent>
-        <TabsContent value="huntflow" className="mt-4">
-          <SeparatePageCard
-            title="Huntflow"
-            text="Передача кандидата и ссылки на отчёт в Huntflow. Уже сейчас это можно сделать через публичный API."
-            href="/integrations/huntflow"
-          />
-        </TabsContent>
-      </Tabs>
-    </>
-  );
+  return <>
+    <PageHeader title="Интеграции" description="Подключите сервисы, с которыми работает команда." />
+    <Tabs defaultValue="catalog">
+      <TabsList className="mb-6"><TabsTrigger value="catalog">Каталог</TabsTrigger><TabsTrigger value="api">API и токены</TabsTrigger></TabsList>
+      <TabsContent value="catalog">
+        <div className="integrations-catalog">
+          <article className="integration-card integration-hh">
+            <img src="/brand/hh.ico" alt="hh.ru" className="integration-logo" />
+            <h2>От отклика до интервью</h2><p>Приглашайте кандидатов из hh.ru и общайтесь в одном месте.</p>
+            <ul><li>Импорт вакансий и откликов</li><li>Ссылка на интервью в чате hh.ru</li><li>История общения с кандидатом</li></ul>
+            <Button asChild><Link href="/integrations/hh">Настроить hh.ru<ArrowRight size={17} /></Link></Button>
+          </article>
+          <article className="integration-card integration-huntflow">
+            <img src="/brand/huntflow.svg" alt="Huntflow" className="integration-logo" />
+            <h2>Результаты в вашей ATS</h2><p>Передавайте кандидатов и отчёты в рабочую воронку команды.</p>
+            <ul><li>Связь с вакансиями в Huntflow</li><li>Кандидаты и результаты интервью</li><li>Ссылка на подробный отчёт</li></ul>
+            <Button asChild variant="outline"><Link href="/integrations/huntflow">Настроить Huntflow<ArrowRight size={17} /></Link></Button>
+          </article>
+        </div>
+        <div className="integration-journey"><h2>Три шага к подключению</h2><ol>
+          <li><span>01</span><Mascot name="fox" /><div><strong>Подключите аккаунт</strong><p>Разрешите доступ к сервису.</p></div></li>
+          <li><span>02</span><Mascot name="rabbit" /><div><strong>Свяжите вакансии</strong><p>Выберите вакансии для интервью.</p></div></li>
+          <li><span>03</span><Mascot name="bear" /><div><strong>Пригласите кандидатов</strong><p>Отправьте ссылки на интервью.</p></div></li>
+        </ol></div>
+      </TabsContent>
+      <TabsContent value="api" className="space-y-5">
+        {can("api_tokens.manage") ? <ApiTokensCard /> : <p className="p-6 text-muted-foreground">Токенами управляет владелец организации.</p>}
+        <QuickStartCard />
+      </TabsContent>
+    </Tabs>
+  </>;
 }

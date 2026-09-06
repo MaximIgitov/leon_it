@@ -1,12 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
+import { useRouter, useSearchParams } from "@/lib/router";
 import { Suspense, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { Button } from "@/components/ui/button";
 import { accountsApi, type InvitePreview } from "@/lib/api/accounts";
 import { ApiError } from "@/lib/api/client";
@@ -49,7 +51,7 @@ function JoinContent() {
   };
 
   if (loading || (!preview && !error)) {
-    return <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />;
+    return <RowsSkeleton />;
   }
 
   if (error || !preview) {
@@ -81,7 +83,7 @@ function JoinContent() {
             Вы вошли как <span className="font-medium">{me.email}</span>.
           </p>
           <Button className="w-full" onClick={accept} disabled={pending}>
-            {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
             Принять приглашение
           </Button>
         </div>
@@ -102,10 +104,11 @@ function JoinContent() {
 export default function JoinPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex h-16 items-center px-6">
+      <header className="flex h-16 items-center justify-between gap-4 px-6">
         <Link href="/" aria-label="LeonIT — на главную">
           <Logo size={28} />
         </Link>
+        <ThemeSwitch />
       </header>
       <main className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-sm sm:p-8">

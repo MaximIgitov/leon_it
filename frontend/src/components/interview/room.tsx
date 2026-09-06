@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, Loader2, Mic, RotateCcw, Square, Video } from "lucide-react";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowRight, Mic, RotateCcw, Square, Video } from "lucide-react";
+
+import { Mascot } from "@/components/brand/mascot";
+import { toast } from "@/hooks/use-toast";
 import { AvatarStage, type StageStatus } from "@/components/interview/avatar-stage";
 import { CodeEditor, clearDraft, draftStorageKey, type CodeDraft } from "@/components/interview/code-editor";
 import { CodeSubmission } from "@/components/reports/code-submission";
@@ -402,6 +406,7 @@ export function InterviewRoom({
       setAvatar(null);
       if (next.status === "completed") {
         setPhase("done");
+        toast({ title: "Интервью пройдено!", description: "Все ответы сохранены.", celebrate: true });
         await telemetry.flush();
         onFinished();
       } else {
@@ -542,7 +547,7 @@ export function InterviewRoom({
       ? "Следующий вопрос"
       : "Завершить интервью";
 
-  if (phase === "loading") return <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />;
+  if (phase === "loading") return <RowsSkeleton />;
 
   if (phase === "error") {
     return (
@@ -559,10 +564,11 @@ export function InterviewRoom({
 
   if (phase === "done") {
     return (
-      <div className="text-center">
-        <h2 className="text-2xl font-bold">Спасибо, интервью завершено!</h2>
+      <div className="interview-finished">
+        <Mascot name="celebrate" eager />
+        <h2>Отлично, всё получилось!</h2>
         <p className="mt-3 text-muted-foreground">
-          Ответы переданы рекрутеру. Обычно ответ приходит в течение нескольких рабочих дней на e-mail.
+          Ответы уже у команды найма. О следующих шагах напишут на e-mail.
         </p>
       </div>
     );
@@ -607,7 +613,7 @@ export function InterviewRoom({
     currentQuestion?.kind === "code"
       ? "Это задача на код: после нажатия вопрос появится на экране и будет озвучен, ниже откроется редактор. Таймера нет — отправьте решение, когда будете готовы."
       : live
-        ? "Интервьюер задаст вопросы голосом, один за другим. Отвечайте как в разговоре: закончили мысль и сделали паузу — ответ сохранится, и прозвучит следующий вопрос. Кнопка «Завершить ответ» всегда под рукой."
+        ? "Леон задаст вопрос. Отвечайте свободно: пауза в несколько секунд сохранит ответ. Завершить его можно и кнопкой."
         : "После нажатия вопрос появится на экране и будет озвучен. У вас будет время подготовиться, затем начнётся запись.";
   const introButton = live ? (index === 0 && !resumed ? "Начать интервью" : "Продолжить") : "Показать вопрос";
 
@@ -658,7 +664,7 @@ export function InterviewRoom({
                     ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Пояснение на камеру необязательно: расскажите, как рассуждали, — так оценят подход, а не только результат.
+                    При желании запишите пояснение к решению.
                   </p>
                 </div>
               ) : (
@@ -688,7 +694,7 @@ export function InterviewRoom({
           {phase === "intro" && !autoAdvance ? (
             <div className="rounded-xl border p-5">
               {resumed ? (
-                <p className="mb-3 rounded-md bg-muted p-3 text-sm">
+                <p className="mb-3 rounded-md bg-secondary p-3 text-sm">
                   С возвращением! Продолжим с вопроса {index + 1}.
                 </p>
               ) : null}
@@ -754,7 +760,7 @@ export function InterviewRoom({
           {phase === "uploading" ? (
             <div className="space-y-2 rounded-xl border p-4">
               <p className="flex items-center gap-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" /> {waitingFollowups ? "Готовим уточняющие вопросы…" : "Сохраняем ответ…"}
+                <Skeleton className="h-4 w-4 rounded-md" /> {waitingFollowups ? "Готовим уточняющие вопросы…" : "Сохраняем ответ…"}
               </p>
               <Progress value={uploadPercent} className="h-1.5" />
             </div>

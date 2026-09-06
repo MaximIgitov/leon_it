@@ -1,11 +1,16 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { CalendarClock, Camera, Clock3, ListChecks, Loader2, Mic } from "lucide-react";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
 
+import Link from "@/lib/router";
+import { useParams } from "@/lib/router";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, Camera, Clock3, ListChecks, Mic } from "lucide-react";
+
+import { Mascot } from "@/components/brand/mascot";
+import { stopStream } from "@/lib/media/devices";
 import { Logo } from "@/components/brand/logo";
+import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { DeviceCheck, type DeviceCheckResult } from "@/components/interview/device-check";
 import { PracticeQuestion } from "@/components/interview/practice";
 import { InterviewRoom } from "@/components/interview/room";
@@ -24,9 +29,10 @@ function minutesLabel(minutes: number): string {
   return `${minutes} минут`;
 }
 
-function Unavailable({ title, text }: { title: string; text: string }) {
+function Unavailable({ title, text, complete = false }: { title: string; text: string; complete?: boolean }) {
   return (
-    <div className="text-center">
+    <div className="interview-finished">
+      <Mascot name={complete ? "celebrate" : "think"} eager />
       <h1 className="text-xl font-bold">{title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{text}</p>
     </div>
@@ -75,7 +81,7 @@ function ConsentForm({
   };
 
   return (
-    <form onSubmit={submit} className="space-y-5" noValidate>
+    <form onSubmit={submit} className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="full_name">Имя и фамилия</Label>
@@ -87,9 +93,7 @@ function ConsentForm({
         </div>
       </div>
       <div className="space-y-3 rounded-lg border p-4">
-        <label className="flex items-start gap-3 text-sm">
-          <Checkbox checked={personalData} onCheckedChange={(v) => setPersonalData(v === true)} className="mt-0.5" />
-          <span>
+        <Checkbox checked={personalData} onCheckedChange={(v) => setPersonalData(v === true)} className="consent-checkbox"><span>
             {docs["personal-data-consent"]?.checkbox_label ??
               "Я даю согласие на обработку моих персональных данных, включая видеозапись и голос"}{" "}
             —{" "}
@@ -97,29 +101,22 @@ function ConsentForm({
               текст согласия
             </Link>
             <span className="text-destructive"> *</span>
-          </span>
-        </label>
-        <label className="flex items-start gap-3 text-sm">
-          <Checkbox checked={privacy} onCheckedChange={(v) => setPrivacy(v === true)} className="mt-0.5" />
-          <span>
+          </span></Checkbox>
+        <Checkbox checked={privacy} onCheckedChange={(v) => setPrivacy(v === true)} className="consent-checkbox"><span>
             Я ознакомился(ась) с{" "}
             <Link href="/legal/privacy-policy" target="_blank" className="text-primary underline-offset-4 hover:underline">
               политикой конфиденциальности
             </Link>
             <span className="text-destructive"> *</span>
-          </span>
-        </label>
-        <label className="flex items-start gap-3 text-sm">
-          <Checkbox checked={newsletter} onCheckedChange={(v) => setNewsletter(v === true)} className="mt-0.5" />
-          <span>
+          </span></Checkbox>
+        <Checkbox checked={newsletter} onCheckedChange={(v) => setNewsletter(v === true)} className="consent-checkbox"><span>
             {docs["newsletter-consent"]?.checkbox_label ?? "Хочу получать рассылку о вакансиях и новостях"}{" "}
             —{" "}
             <Link href="/legal/newsletter-consent" target="_blank" className="text-primary underline-offset-4 hover:underline">
               условия
             </Link>{" "}
             <span className="text-muted-foreground">(необязательно)</span>
-          </span>
-        </label>
+          </span></Checkbox>
       </div>
       {error ? (
         <p className="text-sm text-destructive" role="alert">
@@ -127,11 +124,11 @@ function ConsentForm({
         </p>
       ) : null}
       <Button type="submit" size="lg" className="w-full" disabled={pending || !personalData || !privacy || !fullName.trim() || !email.trim()}>
-        {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
         Продолжить
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        Решение по итогам интервью принимает сотрудник компании, а не алгоритм.
+        Решение по итогам интервью принимает сотрудник компании.
       </p>
     </form>
   );
@@ -149,6 +146,8 @@ export default function InvitationPage() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("consent");
   const [devices, setDevices] = useState<DeviceCheckResult | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  useEffect(() => () => stopStream(streamRef.current), []);
 
   const proceedFromConsent = (next: InvitationPublic) => {
     setInvitation(next);
@@ -156,6 +155,7 @@ export default function InvitationPage() {
   };
 
   const onDevicesReady = (result: DeviceCheckResult) => {
+    streamRef.current = result.stream;
     setDevices(result);
     let practiced = false;
     try {
@@ -187,7 +187,7 @@ export default function InvitationPage() {
   if (error) {
     content = <Unavailable title="Ссылка недействительна" text={error} />;
   } else if (!invitation) {
-    content = <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />;
+    content = <RowsSkeleton />;
   } else if (invitation.status === "expired") {
     content = (
       <Unavailable
@@ -200,21 +200,19 @@ export default function InvitationPage() {
   } else if (!["invited", "opened", "consented", "in_progress"].includes(invitation.status)) {
     content = (
       <Unavailable
-        title="Интервью уже завершено"
+        complete
+        title="Отлично, всё получилось!"
         text="Спасибо! Ответы переданы рекрутеру. Результат сообщат по e-mail."
       />
     );
   } else {
     content = (
       <>
-        <p className="text-sm text-muted-foreground">{invitation.organization_name}</p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-          Видеоинтервью: {invitation.vacancy_title}
-        </h1>
+        <div className="invitation-welcome"><Mascot name={invitation.needs_consent ? "leo" : "mira"} eager /><div><p>{invitation.organization_name} приглашает познакомиться</p><h1>{invitation.vacancy_title}</h1></div></div>
         {invitation.intro_text ? (
-          <p className="mt-3 whitespace-pre-wrap text-muted-foreground">{invitation.intro_text}</p>
+          <details className="faq-item"><summary>Пара слов от команды</summary><p className="whitespace-pre-wrap">{invitation.intro_text}</p></details>
         ) : null}
-        <dl className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="invitation-facts">
           {[
             [ListChecks, `${invitation.question_count} вопр. · около ${minutesLabel(invitation.estimated_minutes)}`],
             [
@@ -228,16 +226,16 @@ export default function InvitationPage() {
           ].map(([Icon, text]) => {
             const IconComponent = Icon as React.ElementType;
             return (
-              <div key={String(text)} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+              <div key={String(text)} className="invitation-fact">
                 <IconComponent className="h-4 w-4 shrink-0 text-primary" />
                 <span>{String(text)}</span>
               </div>
             );
           })}
-        </dl>
+        </div>
         <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
           <Mic className="h-4 w-4" />
-          Можно прерваться и вернуться по этой же ссылке — продолжите с первого неотвеченного вопроса.
+          Сохранённые ответы останутся. Вернуться можно по этой ссылке.
         </p>
         <div className="mt-8">
           {invitation.needs_consent ? (
@@ -267,18 +265,23 @@ export default function InvitationPage() {
       <InterviewRoom
         token={params.token}
         devices={devices}
-        onFinished={() => setInvitation({ ...invitation, status: "completed" })}
+        onFinished={() => { stopStream(streamRef.current); setDevices(null); setStep("consent"); setInvitation({ ...invitation, status: "completed" }); }}
       />
     );
   }
 
+  const stageIndex = invitation?.needs_consent ? 0 : step === "consent" || step === "devices" ? 1 : 2;
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="flex h-16 items-center px-6">
-        <Logo size={28} />
+    <div className="interview-page">
+      <header className="simple-header interview-header">
+        <Link href="/" aria-label="LeonIT — главная"><Logo size={38} /></Link>
+        <nav className="interview-journey" aria-label="Этапы интервью">
+          {["Знакомство", "Камера и звук", "Интервью"].map((label, index) => <span key={label} data-active={index <= stageIndex} aria-current={index === stageIndex ? "step" : undefined}><b>{index + 1}</b><span>{label}</span>{index < 2 && <i className="journey-line" />}</span>)}
+        </nav>
+        <ThemeSwitch />
       </header>
-      <main className="flex flex-1 justify-center px-4 pb-16">
-        <div className={`w-full rounded-2xl border bg-card p-6 shadow-sm sm:p-8 ${step === "room" || step === "practice" || (invitation && !invitation.needs_consent && step === "devices") ? "max-w-4xl" : "max-w-2xl"}`}>{content}</div>
+      <main className="interview-main">
+        <div className={`interview-card ${step === "room" || step === "practice" || (invitation && !invitation.needs_consent) ? "interview-card-wide" : ""}`}>{content}</div>
       </main>
     </div>
   );

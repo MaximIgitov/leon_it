@@ -70,20 +70,20 @@ function ToggleRow({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex items-start justify-between gap-4 rounded-lg border p-3">
+    <div className="settings-toggle">
       <span>
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="block text-xs text-muted-foreground">{hint}</span>
+        <span className="settings-toggle-title">{label}</span>
+        <span className="settings-toggle-hint">{hint}</span>
       </span>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
-    </label>
+      <Switch aria-label={label} checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
   );
 }
 
 export function avatarHint(available: boolean): string {
   return available
-    ? "Виртуальный интервьюер произносит вопросы на видео. Клипы готовятся один раз при публикации; у провайдера это около доллара за минуту видео"
-    : "На этом сервере провайдер аватара не настроен: кандидат видит персону LeonIT с озвучкой";
+    ? "Видеоаватар озвучивает вопросы. Клипы готовятся при публикации вакансии."
+    : "Видеоаватар пока недоступен. Для голосовых вопросов включите озвучку.";
 }
 
 export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorProps) {
@@ -108,15 +108,15 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
   };
 
   return (
-    <Card>
+    <Card className="settings-editor">
       <CardHeader>
         <CardTitle>Настройки интервью</CardTitle>
         <CardDescription>
-          Как проходит интервью для кандидата этой вакансии. Лимиты можно переопределить у
-          отдельного вопроса.
+          Выберите формат и время ответов. Для отдельных вопросов можно задать свои лимиты.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="vacancy-form-content">
+        <section className="settings-section"><h3>Сценарий</h3>
         <div className="space-y-1.5">
           <Label htmlFor="intro">Вступление для кандидата</Label>
           <Textarea
@@ -129,7 +129,7 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
           />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="settings-format">
           <div className="space-y-1.5">
             <Label>Формат интервью</Label>
             <Select value={settings.interview_mode} disabled={!editable} onValueChange={(v) => patch({ interview_mode: v as InterviewMode })}>
@@ -148,20 +148,26 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <NumberField id="prep" label="Подготовка к ответу, с" hint={settings.interview_mode === "live" ? "В живом диалоге не используется: запись начинается, как только прозвучал вопрос" : undefined} value={settings.prep_seconds} min={0} max={600} disabled={!editable} onChange={(v) => patch({ prep_seconds: v })} />
-          <NumberField id="answer" label="Ответ не дольше, с" value={settings.max_answer_seconds} min={30} max={900} disabled={!editable} onChange={(v) => patch({ max_answer_seconds: v })} />
-          <NumberField id="retakes" label="Перезаписей ответа" hint={settings.interview_mode === "live" ? "В живом диалоге перезаписи нет" : "0 — одна попытка"} value={settings.retakes_allowed} min={0} max={5} disabled={!editable} onChange={(v) => patch({ retakes_allowed: v })} />
+        </section>
+        <section className="settings-section"><h3>Время ответа</h3>
+        <div className="settings-numbers">
+          <NumberField id="prep" label="Подготовка, сек" hint={settings.interview_mode === "live" ? "В живом диалоге не используется: запись начинается, как только прозвучал вопрос" : undefined} value={settings.prep_seconds} min={0} max={600} disabled={!editable} onChange={(v) => patch({ prep_seconds: v })} />
+          <NumberField id="answer" label="Ответ, сек" value={settings.max_answer_seconds} min={30} max={900} disabled={!editable} onChange={(v) => patch({ max_answer_seconds: v })} />
+          <NumberField id="retakes" label="Перезаписи" hint={settings.interview_mode === "live" ? "В живом диалоге перезаписи нет" : "0 — одна попытка"} value={settings.retakes_allowed} min={0} max={5} disabled={!editable} onChange={(v) => patch({ retakes_allowed: v })} />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ToggleRow label="Тренировочный вопрос" hint="Перед первым вопросом кандидат проверяет запись на пробном вопросе" checked={settings.practice_question_enabled} disabled={!editable} onChange={(v) => patch({ practice_question_enabled: v })} />
-          <ToggleRow label="Озвучивать вопросы" hint="Вопрос читается синтезированным голосом; текст показывается всегда" checked={settings.tts_enabled} disabled={!editable} onChange={(v) => patch({ tts_enabled: v })} />
-          <ToggleRow label="Уточняющие вопросы" hint="Один уточняющий вопрос после основных — по вопросам с пометкой «допускает уточнение»" checked={settings.followups_enabled} disabled={!editable} onChange={(v) => patch({ followups_enabled: v })} />
+        </section>
+        <section className="settings-section"><h3>Во время интервью</h3>
+        <div className="settings-toggles">
+          <ToggleRow label="Тренировочный вопрос" hint="Проверка записи перед началом интервью." checked={settings.practice_question_enabled} disabled={!editable} onChange={(v) => patch({ practice_question_enabled: v })} />
+          <ToggleRow label="Озвучивать вопросы" hint="Читать вслух. Текст вопроса также остаётся на экране." checked={settings.tts_enabled} disabled={!editable} onChange={(v) => patch({ tts_enabled: v })} />
+          <ToggleRow label="Уточняющие вопросы" hint="Одно уточнение после основных вопросов, если оно разрешено в сценарии." checked={settings.followups_enabled} disabled={!editable} onChange={(v) => patch({ followups_enabled: v })} />
           <ToggleRow label="ИИ-аватар интервьюера" hint={avatarHint(Boolean(vacancy.avatar_available))} checked={settings.avatar_enabled} disabled={!editable || !vacancy.avatar_available} onChange={(v) => patch({ avatar_enabled: v })} />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        </section>
+        <section className="settings-section"><h3>Приглашение и результат</h3>
+        <div className="settings-delivery">
           <NumberField id="invitation" label="Ссылка действует, дней" value={settings.invitation_days} min={1} max={60} disabled={!editable} onChange={(v) => patch({ invitation_days: v })} />
           <div className="space-y-1.5">
             <Label>Обратная связь кандидату</Label>
@@ -178,7 +184,7 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Кандидат получает советы по развитию — без балла и рекомендации.
+              Кандидат получит советы по развитию. Балл и рекомендация останутся у команды.
             </p>
           </div>
           {settings.candidate_feedback_mode === "auto_after_days" ? (
@@ -186,7 +192,8 @@ export function SettingsEditor({ vacancy, editable, onSaved, onError }: EditorPr
           ) : null}
         </div>
 
-        {editable ? <SaveBar pending={pending} dirty={dirty} onSave={save} onReset={() => setSettings(vacancy.settings)} /> : null}
+        </section>
+        {editable ? <div className="editor-save-bar"><SaveBar pending={pending} dirty={dirty} onSave={save} onReset={() => setSettings(vacancy.settings)} /></div> : null}
       </CardContent>
     </Card>
   );

@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton, Skeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Link2, Loader2, Plug, Unlink } from "lucide-react";
+import { ArrowLeft, Download, Link2, Plug, Unlink } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { PageHeader } from "@/components/layout/page-header";
@@ -127,7 +129,7 @@ function ConnectForm({
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => connect({ token })} disabled={pending !== null || !token.trim()}>
           {pending === "token" ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Skeleton className="mr-2 h-4 w-4 rounded-md" />
           ) : (
             <Plug className="mr-2 h-4 w-4" />
           )}
@@ -135,15 +137,14 @@ function ConnectForm({
         </Button>
         {connection.demo_available ? (
           <Button variant="outline" onClick={() => connect({ demo: true })} disabled={pending !== null}>
-            {pending === "demo" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {pending === "demo" ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
             Подключить демо
           </Button>
         ) : null}
       </div>
       {connection.demo_available ? (
         <p className="text-xs text-muted-foreground">
-          Демо-режим работает без токена на встроенных фикстурах: аккаунт, три вакансии, воронка и
-          соискатели. Подходит, чтобы посмотреть сценарий передачи кандидата.
+          Демо позволяет посмотреть импорт кандидатов без подключения аккаунта.
         </p>
       ) : null}
     </div>
@@ -201,7 +202,7 @@ function AccountPicker({
         </Select>
       </div>
       <Button onClick={choose} disabled={pending || !accountId || !connection.can_manage}>
-        {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : null}
         Выбрать
       </Button>
     </div>
@@ -255,10 +256,10 @@ function ConnectionCard({
 }) {
   const showForm = !connection.connected || connection.status === "error";
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+    <Card className="integration-connection">
+      <header className="leon-card-header">
         <div>
-          <CardTitle>Подключение</CardTitle>
+          <CardTitle>Подключение{connection.mode === "fake" && <Badge variant="outline" className="ml-2">Демо-режим</Badge>}</CardTitle>
           <CardDescription>
             Персональный токен Huntflow даёт доступ к вакансиям и соискателям вашего аккаунта.
           </CardDescription>
@@ -268,8 +269,8 @@ function ConnectionCard({
             {CONNECTION_STATUS_LABELS[connection.status]}
           </Badge>
         ) : null}
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </header>
+      <div className="leon-card-content space-y-4">
         {connection.connected ? (
           <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
             <dt className="text-muted-foreground">Аккаунт</dt>
@@ -301,7 +302,7 @@ function ConnectionCard({
             <DisconnectButton onDone={() => onChanged(null)} />
           </div>
         ) : null}
-      </CardContent>
+      </div>
     </Card>
   );
 }
@@ -363,7 +364,7 @@ function LinkRow({
         {canImport ? (
           <Button variant="ghost" size="sm" onClick={importApplicants} disabled={pending !== null}>
             {pending === "import" ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              <Skeleton className="mr-1 h-4 w-4 rounded-md" />
             ) : (
               <Download className="mr-1 h-4 w-4" />
             )}
@@ -379,7 +380,7 @@ function LinkRow({
             aria-label="Отвязать"
             title="Отвязать"
           >
-            {pending === "unlink" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+            {pending === "unlink" ? <Skeleton className="h-4 w-4 rounded-md" /> : <Unlink className="h-4 w-4" />}
           </Button>
         ) : null}
       </div>
@@ -454,7 +455,7 @@ function AddLink({
         </SelectContent>
       </Select>
       <Button size="sm" variant="outline" onClick={link} disabled={pending || !localId}>
-        {pending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Link2 className="mr-1 h-4 w-4" />}
+        {pending ? <Skeleton className="mr-1 h-4 w-4 rounded-md" /> : <Link2 className="mr-1 h-4 w-4" />}
         Привязать
       </Button>
     </div>
@@ -505,14 +506,13 @@ function VacanciesCard({ onLinksChanged }: { onLinksChanged: () => void }) {
       <CardHeader>
         <CardTitle>Вакансии Huntflow</CardTitle>
         <CardDescription>
-          Привяжите вакансию Huntflow к локальной: кандидаты этой вакансии передаются в неё с выбранным
-          статусом, а соискателей можно импортировать в кандидаты.
+          Выберите соответствующую вакансию в Леоне и этап воронки для передачи кандидатов.
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
         {items === null ? (
           <div className="p-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <RowsSkeleton />
           </div>
         ) : items.length === 0 ? (
           <p className="p-6 text-sm text-muted-foreground">В аккаунте Huntflow нет вакансий.</p>
@@ -589,24 +589,11 @@ export default function HuntflowIntegrationPage() {
   }, [load]);
 
   return (
-    <>
-      <PageHeader
-        title="Huntflow"
-        description="Передача кандидата со ссылкой на отчёт в Huntflow и импорт соискателей из привязанных вакансий."
-        actions={
-          <>
-            {connection?.mode === "fake" ? <Badge variant="secondary">Демо-режим</Badge> : null}
-            <Button asChild variant="outline">
-              <Link href="/integrations">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Интеграции
-              </Link>
-            </Button>
-          </>
-        }
-      />
+    <section className="integration-detail">
+      <Link href="/integrations" className="integration-back"><ArrowLeft size={17} />Интеграции</Link>
+      <PageHeader title="Huntflow" icon={<img src="/brand/huntflow.svg" alt="" className="integration-logo" />} description="Вакансии, импорт кандидатов и передача отчётов." />
       {connection === undefined ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <RowsSkeleton />
       ) : connection === null ? (
         <p className="text-sm text-muted-foreground">
           Интеграции доступны владельцу и рекрутерам организации.
@@ -625,6 +612,6 @@ export default function HuntflowIntegrationPage() {
           ) : null}
         </div>
       )}
-    </>
+    </section>
   );
 }

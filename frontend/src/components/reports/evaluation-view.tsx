@@ -1,265 +1,47 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, HelpCircle, Quote, XCircle } from "lucide-react";
-
+import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, HelpCircle, Quote, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RECOMMENDATION_LABELS, type EvaluationOutput, type Evidence, type Recommendation } from "@/lib/api/reports";
-import { cn } from "@/lib/utils";
 
 export function RecommendationBadge({ value, score }: { value: Recommendation | null; score: number | null }) {
   if (!value) return <Badge variant="secondary">Оценка готовится</Badge>;
-  const icon =
-    value === "fit" ? <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> : value === "no_fit" ? <XCircle className="mr-1 h-3.5 w-3.5" /> : <HelpCircle className="mr-1 h-3.5 w-3.5" />;
-  const variant = value === "fit" ? "default" : value === "no_fit" ? "destructive" : "secondary";
-  return (
-    <Badge variant={variant} className="gap-0">
-      {icon}
-      {RECOMMENDATION_LABELS[value]}
-      {score !== null ? <span className="ml-1.5 opacity-80">{Math.round(score)}</span> : null}
-    </Badge>
-  );
+  const Icon = value === "fit" ? CheckCircle2 : value === "no_fit" ? XCircle : HelpCircle;
+  return <Badge variant={value === "fit" ? "default" : value === "no_fit" ? "destructive" : "secondary"} className="gap-1"><Icon size={15} />{RECOMMENDATION_LABELS[value]}{score !== null && <span className="ml-1">{Math.round(score)}</span>}</Badge>;
 }
 
-function EvidenceList({
-  items,
-  onSeek,
-}: {
-  items: Evidence[];
-  onSeek?: (answerId: string, seconds: number | null) => void;
-}) {
+function EvidenceList({ items, onSeek }: { items: Evidence[]; onSeek?: (answerId: string, seconds: number | null) => void }) {
   if (!items?.length) return null;
-  return (
-    <ul className="mt-2 space-y-1">
-      {items.map((item, index) => (
-        <li key={`${item.answer_id}-${index}`}>
-          <button
-            type="button"
-            onClick={() => onSeek?.(item.answer_id, item.start_s)}
-            className={cn(
-              "flex w-full items-start gap-2 rounded-md p-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              item.verified === false && "opacity-70",
-            )}
-            title={
-              item.verified === false
-                ? "Цитата не найдена в транскрипте дословно — проверьте по видео"
-                : "Перейти к этому месту в видео"
-            }
-          >
-            {item.verified === false ? (
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Не подтверждено" />
-            ) : (
-              <Quote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            )}
-            <span>
-              «{item.quote}»
-              <span className="ml-1 text-xs opacity-70">
-                вопр. {item.question_index + 1}
-                {item.start_s !== null ? ` · ${Math.floor(item.start_s / 60)}:${String(Math.floor(item.start_s % 60)).padStart(2, "0")}` : ""}
-                {item.verified === false ? " · не подтверждено" : ""}
-              </span>
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
+  return <ul className="report-evidence">{items.map((item, index) => <li key={`${item.answer_id}-${index}`}>
+    <button type="button" disabled={!onSeek} onClick={() => onSeek?.(item.answer_id, item.start_s)} className="evidence-quote" title={item.verified === false ? "Цитата не подтверждена — проверьте запись" : "Открыть ответ"}>
+      {item.verified === false ? <AlertTriangle size={18} className="text-warning" aria-label="Не подтверждено" /> : <Quote size={18} aria-hidden />}
+      <span><q>{item.quote}</q><small>Вопрос {item.question_index + 1}{item.start_s !== null ? ` · ${Math.floor(item.start_s / 60)}:${String(Math.floor(item.start_s % 60)).padStart(2, "0")}` : ""}{item.verified === false ? " · требует проверки" : ""}</small></span>{onSeek && <ArrowUpRight size={17} aria-hidden />}
+    </button>
+  </li>)}</ul>;
 }
 
-function ScoreDots({ score }: { score: number }) {
-  return (
-    <span className="inline-flex gap-0.5" aria-label={`Балл ${score} из 4`}>
-      {[1, 2, 3, 4].map((n) => (
-        <span key={n} className={cn("h-2.5 w-2.5 rounded-full", n <= score ? "bg-primary" : "bg-muted")} />
-      ))}
-    </span>
-  );
+function Score({ score }: { score: number }) {
+  return <span className="report-competency-score"><span className="score-segments" aria-hidden>{[1, 2, 3, 4].map(n => <i key={n} data-filled={n <= score} />)}</span><strong>{score}<span>/4</span></strong></span>;
 }
 
-/** Сколько цитат заключения сервер подтвердил по транскрипту. */
 export function quoteStats(output: EvaluationOutput): { found: number; total: number } {
-  const all: Evidence[] = [
-    ...(output.competency_scores ?? []).flatMap((item) => item.evidence ?? []),
-    ...(output.question_assessments ?? []).flatMap((item) => item.evidence ?? []),
-    ...(output.skills ?? []).flatMap((item) => item.evidence ?? []),
-  ];
-  return { total: all.length, found: all.filter((item) => item.verified !== false).length };
+  const all: Evidence[] = [...(output.competency_scores ?? []).flatMap(item => item.evidence ?? []), ...(output.question_assessments ?? []).flatMap(item => item.evidence ?? []), ...(output.skills ?? []).flatMap(item => item.evidence ?? [])];
+  return { total: all.length, found: all.filter(item => item.verified !== false).length };
 }
 
-export function EvaluationView({
-  output,
-  onSeek,
-}: {
-  output: EvaluationOutput;
-  onSeek?: (answerId: string, seconds: number | null) => void;
-}) {
+export function EvaluationView({ output, onSeek }: { output: EvaluationOutput; onSeek?: (answerId: string, seconds: number | null) => void }) {
   const quotes = quoteStats(output);
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Заключение</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p className="leading-relaxed">{output.summary}</p>
-          {output.transcript_quality_note ? (
-            <p className="flex items-start gap-2 text-muted-foreground">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {output.transcript_quality_note}
-            </p>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            Уверенность модели: {Math.round(output.confidence * 100)}%
-            {quotes.total > 0 ? ` · цитаты подтверждены по транскрипту: ${quotes.found} из ${quotes.total}` : ""}
-          </p>
-          {quotes.total > 0 && quotes.found < quotes.total ? (
-            <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Часть цитат не найдена в транскрипте дословно — они помечены и требуют проверки по видео.
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {output.competency_scores?.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Компетенции</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {output.competency_scores.map((item) => (
-              <div key={item.competency_id}>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium">{item.name}</span>
-                  <span className="flex items-center gap-2 text-sm">
-                    <ScoreDots score={item.score} /> {item.score}/4
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{item.rationale}</p>
-                <EvidenceList items={item.evidence} onSeek={onSeek} />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Сильные стороны</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
-              {output.strengths.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Зоны роста</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
-              {output.growth_areas.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Риски</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {output.risks.length ? (
-              <ul className="list-disc space-y-1 pl-5 text-sm">
-                {output.risks.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Не выявлены.</p>
-            )}
-            {output.red_flags?.length ? (
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-destructive">
-                {output.red_flags.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Что проверить на живом созвоне</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-1 pl-5 text-sm">
-              {output.follow_up_checks.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
-
-      {output.skills?.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Навыки</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {output.skills.map((skill) => (
-              <Badge key={skill.name} variant="outline" className="font-normal">
-                {skill.name} · {skill.level}
-              </Badge>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {output.question_assessments?.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">По вопросам</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {output.question_assessments.map((item) => (
-              <div key={item.question_index}>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium">Вопрос {item.question_index + 1}</span>
-                  <span className="flex items-center gap-2 text-sm">
-                    <ScoreDots score={item.score} /> {item.score}/4
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{item.comment}</p>
-                {item.covered_points.length || item.missed_points.length ? (
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs">
-                    <div>
-                      <p className="font-medium text-success">Раскрыто</p>
-                      <ul className="list-disc pl-4">
-                        {item.covered_points.map((p) => (
-                          <li key={p}>{p}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <p className="font-medium text-warning">Не раскрыто</p>
-                      <ul className="list-disc pl-4">
-                        {item.missed_points.map((p) => (
-                          <li key={p}>{p}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                ) : null}
-                <EvidenceList items={item.evidence} onSeek={onSeek} />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
-  );
+  return <div className="evaluation-view">
+    <section className="report-card evaluation-summary"><h2>Общее впечатление</h2><p className="evaluation-summary-text">{output.summary}</p>
+      <div className="evaluation-confidence"><span>Уверенность ИИ <strong>{Math.round(output.confidence * 100)}%</strong></span>{quotes.total > 0 && <span>Подтверждено цитат <strong>{quotes.found} из {quotes.total}</strong></span>}</div>
+      {output.transcript_quality_note && <p className="report-notice"><AlertTriangle size={18} />{output.transcript_quality_note}</p>}
+      {quotes.found < quotes.total && <p className="report-notice">Цитаты без подтверждения помечены ниже. Проверьте их по записи.</p>}
+    </section>
+    {output.competency_scores?.length > 0 && <section className="report-card evaluation-competencies"><h2>Оценка по критериям</h2><div className="competency-list">{output.competency_scores.map(item => <article key={item.competency_id} className="competency-row"><header><h3>{item.name}</h3><Score score={item.score} /></header><p>{item.rationale}</p><EvidenceList items={item.evidence} onSeek={onSeek} /></article>)}</div></section>}
+    <section className="report-card evaluation-strengths"><h2>Сильные стороны</h2><ul className="report-checklist">{output.strengths.map(item => <li key={item}><CheckCircle2 size={18} aria-hidden /><span>{item}</span></li>)}</ul>{!output.strengths.length && <p className="report-muted">В отчёте пока нет наблюдений.</p>}</section>
+    <section className="report-card"><h2>Что обсудить подробнее</h2><ul className="report-bullets">{output.growth_areas.map(item => <li key={item}>{item}</li>)}</ul>{output.follow_up_checks.length > 0 && <div className="report-followups"><h3>На следующей встрече</h3><ul className="report-bullets">{output.follow_up_checks.map(item => <li key={item}>{item}</li>)}</ul></div>}{!output.growth_areas.length && !output.follow_up_checks.length && <p className="report-muted">Дополнительных вопросов пока нет.</p>}</section>
+    <section className="report-card"><h2>Риски</h2>{output.risks.length ? <ul className="report-bullets">{output.risks.map(item => <li key={item}>{item}</li>)}</ul> : <p className="report-muted">По ответам не выявлены.</p>}{output.red_flags?.length > 0 && <ul className="report-bullets text-destructive">{output.red_flags.map(item => <li key={item}>{item}</li>)}</ul>}</section>
+    {output.skills?.length > 0 && <section className="report-card"><h2>Навыки</h2><ul className="report-skills">{output.skills.map(skill => <li key={skill.name}><div><strong>{skill.name}</strong><span>{skill.level}</span></div><EvidenceList items={skill.evidence} onSeek={onSeek} /></li>)}</ul></section>}
+    {output.question_assessments?.length > 0 && <section className="report-card evaluation-questions"><h2>Разбор вопросов</h2>{output.question_assessments.map(item => <details key={item.question_index} className="assessment-question"><summary><span>Вопрос {item.question_index + 1}</span><Score score={item.score} /><ChevronDown size={18} /></summary><div className="assessment-body"><p>{item.comment}</p><div className="assessment-points">{item.covered_points.length > 0 && <div><h3>Раскрыто</h3><ul className="report-bullets">{item.covered_points.map(point => <li key={point}>{point}</li>)}</ul></div>}{item.missed_points.length > 0 && <div><h3>Стоит уточнить</h3><ul className="report-bullets">{item.missed_points.map(point => <li key={point}>{point}</li>)}</ul></div>}</div><EvidenceList items={item.evidence} onSeek={onSeek} />{onSeek && item.answer_id && <button className="report-text-link" onClick={() => onSeek(item.answer_id!, 0)}>Открыть ответ<ArrowUpRight size={17} /></button>}</div></details>)}</section>}
+  </div>;
 }

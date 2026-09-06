@@ -1,7 +1,9 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Play, Send } from "lucide-react";
+import { Play, Send } from "lucide-react";
 
 import { RunResultView } from "@/components/reports/code-submission";
 import { Button } from "@/components/ui/button";
@@ -218,7 +220,7 @@ export function CodeEditor({
         <pre
           ref={gutterRef}
           aria-hidden
-          className="select-none overflow-hidden bg-muted/40 px-2 py-3 text-right font-mono text-xs leading-5 text-muted-foreground"
+          className="select-none overflow-hidden bg-secondary/40 px-2 py-3 text-right font-mono text-xs leading-5 text-muted-foreground"
         >
           {Array.from({ length: lines }, (_, index) => index + 1).join("\n")}
         </pre>
@@ -243,7 +245,7 @@ export function CodeEditor({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => onSubmit(draft)} disabled={empty || overLimit || busy !== null}>
-          {busy === "submit" ? <Loader2 className="animate-spin" /> : <Send />}
+          {busy === "submit" ? <Skeleton className="h-4 w-4 rounded-md" /> : <Send />}
           {submittedAt && !dirty ? "Отправить снова" : "Отправить код"}
         </Button>
         <Button
@@ -253,7 +255,7 @@ export function CodeEditor({
           title={runnerEnabled ? undefined : "Запуск кода появится позже"}
           aria-describedby={runnerEnabled ? undefined : "code-runner-hint"}
         >
-          {busy === "run" ? <Loader2 className="animate-spin" /> : <Play />}
+          {busy === "run" ? <Skeleton className="h-4 w-4 rounded-md" /> : <Play />}
           Запустить
         </Button>
         {!runnerEnabled ? (

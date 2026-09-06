@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { RowsSkeleton } from "@/components/ui/skeleton";
+
+import Link from "@/lib/router";
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Trophy } from "lucide-react";
+import { Trophy } from "lucide-react";
 
 import { InterviewStatusBadge } from "@/components/candidates/status-badge";
 import { RecommendationBadge } from "@/components/reports/evaluation-view";
@@ -38,7 +40,7 @@ export function RankingTable({ vacancyId }: { vacancyId: string }) {
     void load();
   }, [load]);
 
-  if (rows === null) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
+  if (rows === null) return <RowsSkeleton />;
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed p-10 text-center">
@@ -67,7 +69,7 @@ export function RankingTable({ vacancyId }: { vacancyId: string }) {
             <TableRow key={row.interview_id}>
               <TableCell className="text-muted-foreground">{index + 1}</TableCell>
               <TableCell>
-                <Link href={`/vacancies/${vacancyId}/interviews/${row.interview_id}`} className="font-medium hover:underline">
+                <Link href={`/vacancies/${vacancyId}/interviews/${row.interview_id}`} className="table-row-link font-medium hover:underline">
                   {row.candidate_name}
                 </Link>
                 <div className="text-xs text-muted-foreground">{row.candidate_email}</div>

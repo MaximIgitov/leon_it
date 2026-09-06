@@ -1,10 +1,13 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useState } from "react";
-import { Loader2, MessageSquarePlus, Trash2 } from "lucide-react";
+import { MessageSquarePlus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Note } from "@/lib/api/reports";
 
@@ -26,7 +29,7 @@ export function NotesPanel({
   notes: Note[];
   canWrite: boolean;
   currentUserId?: string | null;
-  onAdd: (text: string) => Promise<void>;
+  onAdd: (text: string) => Promise<void | boolean>;
   onDelete?: (noteId: string) => Promise<void>;
   onSeek?: (answerId: string, seconds: number | null) => void;
 }) {
@@ -37,17 +40,17 @@ export function NotesPanel({
     if (!draft.trim()) return;
     setPending(true);
     try {
-      await onAdd(draft.trim());
-      setDraft("");
+      const saved = await onAdd(draft.trim());
+      if (saved !== false) setDraft("");
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <Card>
+    <Card className="report-notes-panel rounded-[22px] border">
       <CardHeader>
-        <CardTitle className="text-base">Заметки</CardTitle>
+        <CardTitle className="text-xl">Заметки команды</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {notes.length === 0 ? (
@@ -55,10 +58,10 @@ export function NotesPanel({
         ) : (
           <ul className="space-y-2">
             {notes.map((note) => (
-              <li key={note.id} className="rounded-lg border p-3 text-sm">
+              <li key={note.id} className="report-note">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="report-note-author">
                       {note.author_label} · {new Date(note.created_at).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })}
                       {note.answer_id && note.at_s !== null ? (
                         <button
@@ -72,7 +75,7 @@ export function NotesPanel({
                     </p>
                     <p className="mt-1 whitespace-pre-wrap">{note.text}</p>
                   </div>
-                  {onDelete && note.author_user_id && note.author_user_id === currentUserId ? (
+                  {canWrite && onDelete && note.author_user_id && note.author_user_id === currentUserId ? (
                     <Button variant="ghost" size="icon" aria-label="Удалить заметку" onClick={() => onDelete(note.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -84,10 +87,11 @@ export function NotesPanel({
         )}
         {canWrite ? (
           <div className="space-y-2">
-            <Textarea rows={2} placeholder="Ваша заметка" value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <Label htmlFor="report-note">Новая заметка</Label>
+            <Textarea id="report-note" rows={4} disabled={pending} placeholder="Наблюдения и вопросы для команды" value={draft} onChange={(e) => setDraft(e.target.value)} />
             <Button size="sm" onClick={submit} disabled={pending || !draft.trim()}>
-              {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquarePlus className="mr-2 h-4 w-4" />}
-              Добавить
+              {pending ? <Skeleton className="mr-2 h-4 w-4 rounded-md" /> : <MessageSquarePlus className="mr-2 h-4 w-4" />}
+              Добавить заметку
             </Button>
           </div>
         ) : null}

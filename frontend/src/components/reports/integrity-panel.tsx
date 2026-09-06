@@ -56,7 +56,7 @@ export function IntegrityPanel({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
 
-  if (!report) return null;
+  if (!report) return <section className="report-card report-empty"><Info size={28} /><h2>Проверка ещё не готова</h2><p>Наблюдения появятся после обработки записи.</p></section>;
 
   const key = (item: IntegrityObservation) => `${item.code}:${item.question_index ?? -1}`;
 
@@ -74,21 +74,20 @@ export function IntegrityPanel({
   };
 
   return (
-    <Card>
+    <Card className="report-integrity rounded-[22px] border">
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle className="text-base">Достоверность записи</CardTitle>
+        <CardTitle className="text-xl">Проверка записи</CardTitle>
         <IntegrityBadge report={report} />
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-5 text-base">
         {!report.checked ? (
           <p className="text-muted-foreground">
             По этому интервью ещё нет данных: кандидат не начинал запись.
           </p>
         ) : report.observations.length === 0 ? (
-          <p className="flex items-start gap-2 text-muted-foreground">
+          <p className="integrity-clear">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-            Ничего необычного: кандидат не уходил с вкладки во время ответов, запись сделана
-            браузером, длительности сходятся.
+            По техническим событиям интервью замечаний не найдено.
           </p>
         ) : (
           <ul className="space-y-3">
@@ -96,7 +95,7 @@ export function IntegrityPanel({
               <li
                 key={key(item)}
                 className={cn(
-                  "rounded-lg border p-3",
+                  "integrity-observation",
                   item.review?.verdict === "false_positive" && "opacity-60",
                 )}
               >
@@ -143,10 +142,7 @@ export function IntegrityPanel({
             ))}
           </ul>
         )}
-        <p className="text-xs text-muted-foreground">
-          Это наблюдения по записи и событиям в комнате, а не вывод о честности кандидата.
-          Система не распознаёт личность и не анализирует мимику — решение принимает человек.
-        </p>
+        <div className="integrity-explainer"><h3>Что проверяет Леон</h3><p>События в комнате, способ записи и её длительность. Наблюдения помогают проверить интервью; личность и мимика не анализируются.</p></div>
       </CardContent>
     </Card>
   );

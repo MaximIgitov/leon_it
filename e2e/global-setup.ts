@@ -1,11 +1,11 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /*
  * Поднимает бэкенд и фронтенд для сквозных тестов, если E2E_EXTERNAL не задан.
  * Бэкенд: uvicorn на SQLite во временном каталоге, MODEL_PROVIDER=fake, письма
- * в консоль. Фронтенд: `next dev` (в CI — предварительно собранный `next start`).
+ * в консоль. Фронтенд: Vite (в CI — предварительно собранный Nitro server).
  * PID-ы пишутся в файл, чтобы teardown их остановил.
  */
 const ROOT = path.resolve(__dirname, "..");
@@ -89,17 +89,12 @@ export default async function globalSetup(): Promise<void> {
   const worker = start(uvCmd, [...uvPrefix, "run", "python", "-m", "leonit.jobs.worker"], backendDir, backendEnv);
 
   const frontendDir = path.join(ROOT, "frontend");
-  const frontendEnv = { NEXT_PUBLIC_BACKEND_API_URL: API_URL, NEXT_PUBLIC_APP_URL: BASE_URL, NEXT_TELEMETRY_DISABLED: "1" };
+  const frontendEnv = { VITE_BACKEND_API_URL: API_URL, VITE_APP_URL: BASE_URL };
   let frontend: ChildProcess;
   if (process.env.E2E_FRONTEND_START) {
-    // Прод-сборка standalone: как в Docker-образе, рядом с server.js нужны
-    // статика и public. next dev на Windows нестабилен под нагрузкой тестов.
-    const standalone = path.join(frontendDir, ".next", "standalone");
-    cpSync(path.join(frontendDir, ".next", "static"), path.join(standalone, ".next", "static"), { recursive: true });
-    cpSync(path.join(frontendDir, "public"), path.join(standalone, "public"), { recursive: true });
-    frontend = start("node", ["server.js"], standalone, { ...frontendEnv, PORT: "3000", HOSTNAME: "127.0.0.1" });
+    frontend = start("node", [".output/server/index.mjs"], frontendDir, { ...frontendEnv, PORT: "3000", HOST: "127.0.0.1" });
   } else {
-    frontend = start("npm", ["run", "dev", "--", "-p", "3000"], frontendDir, frontendEnv);
+    frontend = start("npm", ["run", "dev", "--", "--port", "3000"], frontendDir, frontendEnv);
   }
 
   writeFileSync(

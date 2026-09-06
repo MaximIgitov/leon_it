@@ -3,6 +3,9 @@
 .git/
 .github/
 .next/
+.output/
+.tanstack/
+dist/
 node_modules/
 npm-debug.log*
 tsconfig.tsbuildinfo

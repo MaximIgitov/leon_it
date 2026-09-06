@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VACANCY_STATUS_LABELS, vacanciesApi, type VacancyListItem } from "@/lib/api/vacancies";
 
-// Radix Select не принимает пустое значение — «все вакансии» кодируем словом.
+// Отдельное значение для обзора всех вакансий.
 const ALL = "all";
 
 export function DashboardView() {
@@ -34,15 +34,12 @@ export function DashboardView() {
 
   return (
     <>
-      <PageHeader
-        title="Дашборд"
-        description="Воронка кандидатов, сроки, баллы и согласие решений с рекомендацией ИИ."
-      />
+
       <DashboardPanel
         vacancyId={vacancyId === ALL ? null : vacancyId}
         toolbar={
           <Select value={vacancyId} onValueChange={setVacancyId}>
-            <SelectTrigger className="w-full sm:w-72" aria-label="Вакансия">
+            <SelectTrigger className="w-full max-w-64" aria-label="Вакансия">
               <SelectValue placeholder="Все вакансии" />
             </SelectTrigger>
             <SelectContent>

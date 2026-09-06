@@ -27,7 +27,7 @@ export function RunResultView({ result, className }: { result: CodeRunResult; cl
         </span>
       </div>
       {result.stdout ? (
-        <pre className="thin-scrollbar max-h-48 overflow-auto rounded-md border bg-muted/40 p-2 font-mono leading-5">{result.stdout}</pre>
+        <pre className="thin-scrollbar max-h-48 overflow-auto rounded-md border bg-secondary/40 p-2 font-mono leading-5">{result.stdout}</pre>
       ) : null}
       {result.stderr ? (
         <pre className="thin-scrollbar max-h-48 overflow-auto rounded-md border border-destructive/40 bg-destructive/5 p-2 font-mono leading-5 text-destructive">
@@ -59,7 +59,7 @@ export function CodeSubmission({
             : "черновик, не отправлен"}
         </span>
       </div>
-      <pre className="thin-scrollbar max-h-96 overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5">
+      <pre className="thin-scrollbar max-h-96 overflow-auto rounded-lg border bg-secondary/40 p-3 font-mono text-xs leading-5">
         <code>{submission.source}</code>
       </pre>
       {submission.run_result ? <RunResultView result={submission.run_result} /> : null}

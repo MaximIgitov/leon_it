@@ -33,10 +33,25 @@ async function passDeviceCheck(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Всё готово — к интервью/ }).click();
 }
 
+/**
+ * Согласия: два обязательных чекбокса. У чекбоксов HeroUI настоящий <input>
+ * скрыт визуально и перекрыт подписью, поэтому кликаем по квадрату
+ * переключателя, а состояние проверяем по самому чекбоксу.
+ */
+async function acceptConsents(page: Page): Promise<void> {
+  const controls = page.locator('.consent-checkbox [data-slot="checkbox-control"]');
+  const checkboxes = page.getByRole("checkbox");
+  for (const index of [0, 1]) {
+    await controls.nth(index).click();
+    await expect(checkboxes.nth(index)).toBeChecked();
+  }
+  await page.getByRole("button", { name: "Продолжить" }).click();
+}
+
 /*
  * Сквозной сценарий кандидата в формате «кнопка ответа»: ссылка → согласия →
  * проверка устройств → тренировочный вопрос → два ответа на камеру →
- * «интервью завершено» → возврат по ссылке. Камера и микрофон — фейковые устройства Chromium, запись
+ * «всё получилось» → возврат по ссылке. Камера и микрофон — фейковые устройства Chromium, запись
  * настоящая (WebM). Кабинет рекрутера проверяет recruiter-flow.spec.ts: там
  * интервью заполняется через API, поэтому один прогон не зависит от того,
  * отдаст ли браузер фейковую камеру второму контексту.
@@ -45,15 +60,13 @@ test("кандидат проходит интервью от ссылки до 
   const seed = await seedInterview();
 
   await page.goto(seed.link);
-  await expect(page.getByRole("heading", { name: /Видеоинтервью: Python-разработчик/ })).toBeVisible();
+  // Приглашение: название вакансии заголовком, число вопросов в фактах.
+  await expect(page.getByRole("heading", { name: /Python-разработчик/ })).toBeVisible();
   await expect(page.getByText("2 вопр.")).toBeVisible();
 
-  // Согласия: имя и e-mail подставлены из приглашения, два обязательных чекбокса.
+  // Согласия: имя и e-mail подставлены из приглашения.
   await expect(page.getByLabel("Имя и фамилия")).toHaveValue("Иван Кандидат");
-  const checkboxes = page.getByRole("checkbox");
-  await checkboxes.nth(0).click();
-  await checkboxes.nth(1).click();
-  await page.getByRole("button", { name: "Продолжить" }).click();
+  await acceptConsents(page);
 
   // Проверка устройств: фейковая камера даёт поток; пробная запись 5 с.
   await passDeviceCheck(page);
@@ -72,12 +85,13 @@ test("кандидат проходит интервью от ссылки до 
     await page.getByRole("button", { name: index === 0 ? "Следующий вопрос" : "Завершить интервью" }).click();
   }
 
-  await expect(page.getByRole("heading", { name: /Спасибо, интервью завершено/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Отлично, всё получилось/ })).toBeVisible();
   await expect.poll(async () => (await getInterview(seed)).status, { timeout: 20_000 }).not.toBe("in_progress");
 
   // Возврат по ссылке после завершения показывает финальную страницу.
   await page.goto(seed.link);
-  await expect(page.getByRole("heading", { name: /Интервью уже завершено/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Отлично, всё получилось/ })).toBeVisible();
+  await expect(page.getByText("Ответы переданы рекрутеру")).toBeVisible();
 });
 
 /*
@@ -92,16 +106,14 @@ test("живой диалог: вопросы звучат сами, кнопк�
 
   await page.goto(seed.link);
   await expect(page.getByText(/Живой диалог/)).toBeVisible();
-  const checkboxes = page.getByRole("checkbox");
-  await checkboxes.nth(0).click();
-  await checkboxes.nth(1).click();
-  await page.getByRole("button", { name: "Продолжить" }).click();
+  await acceptConsents(page);
   await passDeviceCheck(page);
 
   // E2E_SHOTS_DIR=<каталог> — сохранить экраны живого диалога (для материалов и ревью вёрстки).
   const shots = process.env.E2E_SHOTS_DIR;
   const start = page.getByRole("button", { name: "Начать интервью" });
   await expect(start).toBeVisible();
+  await expect(page.getByText("Начнём интервью?")).toBeVisible();
   if (shots) await page.screenshot({ path: `${shots}/live-intro.png` });
   await start.click();
   for (const index of [0, 1]) {
@@ -114,6 +126,6 @@ test("живой диалог: вопросы звучат сами, кнопк�
     await expect(finish).toBeHidden({ timeout: 30_000 });
   }
 
-  await expect(page.getByRole("heading", { name: /Спасибо, интервью завершено/ })).toBeVisible({ timeout: 40_000 });
+  await expect(page.getByRole("heading", { name: /Отлично, всё получилось/ })).toBeVisible({ timeout: 40_000 });
   await expect.poll(async () => (await getInterview(seed)).status, { timeout: 20_000 }).not.toBe("in_progress");
 });

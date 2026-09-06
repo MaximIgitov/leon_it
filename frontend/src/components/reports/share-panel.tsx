@@ -1,12 +1,15 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { useCallback, useEffect, useState } from "react";
-import { Link2, Loader2 } from "lucide-react";
+import { Link2, Users } from "lucide-react";
 
 import { CopyField } from "@/components/candidates/invite-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api/client";
@@ -20,6 +23,7 @@ export function SharePanel({ interviewId }: { interviewId: string }) {
   const [label, setLabel] = useState("");
   const [days, setDays] = useState("14");
   const [pending, setPending] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [fresh, setFresh] = useState<string | null>(null);
 
   const fail = useCallback(
@@ -31,7 +35,9 @@ export function SharePanel({ interviewId }: { interviewId: string }) {
   const load = useCallback(async () => {
     try {
       setShares(await reportsApi.shares(interviewId));
+      setLoadError(false);
     } catch (error) {
+      setLoadError(true);
       fail(error, "Не удалось загрузить ссылки");
     }
   }, [interviewId, fail]);
@@ -73,48 +79,31 @@ export function SharePanel({ interviewId }: { interviewId: string }) {
   };
 
   return (
-    <Card>
+    <Card className="report-share-panel rounded-[22px] border">
       <CardHeader>
-        <CardTitle className="text-base">Ссылка для нанимающего менеджера</CardTitle>
+        <CardTitle className="text-xl">Поделиться интервью</CardTitle>
         <CardDescription>
-          Открывает только этого кандидата, без других кандидатов и деталей integrity. Каждый
-          просмотр и решение по ссылке записываются.
+          Дайте нанимающему менеджеру доступ к ответам и отчёту этого кандидата. Выберите срок действия ссылки.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          <Input
-            placeholder="Кому (например, Тимлид Петров)"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className="min-w-[200px] flex-1"
-          />
-          <Input
-            type="number"
-            min={1}
-            max={90}
-            value={days}
-            onChange={(e) => setDays(e.target.value)}
-            className="w-24"
-            aria-label="Срок, дней"
-          />
-          <Button onClick={create} disabled={pending}>
-            {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
-            Создать
-          </Button>
-        </div>
+        <form className="report-share-form" onSubmit={event => { event.preventDefault(); void create(); }}>
+          <div><Label htmlFor="share-recipient">Для кого</Label><Input id="share-recipient" placeholder="Например, руководитель команды" value={label} onChange={event => setLabel(event.target.value)} /></div>
+          <div><Label htmlFor="share-days">Срок, дней</Label><Input id="share-days" type="number" min={1} max={90} required value={days} onChange={event => setDays(event.target.value)} /></div>
+          <Button type="submit" disabled={pending || !Number.isInteger(Number(days)) || Number(days) < 1 || Number(days) > 90}>{pending ? <Skeleton className="h-4 w-4 rounded-md" /> : <Link2 size={17} />}Создать ссылку</Button>
+        </form>
         {fresh ? (
-          <div className="rounded-lg bg-muted/40 p-3 text-sm">
+          <div className="report-fresh-link">
             <p className="mb-2">Ссылка показывается один раз:</p>
             <CopyField value={fresh} />
           </div>
         ) : null}
-        {shares === null ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        {loadError ? <div className="report-share-empty" role="alert"><p>Не удалось загрузить ссылки.</p><Button variant="outline" onClick={() => void load()}>Повторить</Button></div> : shares === null ? (
+          <div className="space-y-3"><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-16 rounded-xl" /></div>
         ) : shares.length ? (
-          <ul className="divide-y text-sm">
+          <ul className="report-share-list">
             {shares.map((share) => (
-              <li key={share.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <li key={share.id} className="report-share-row">
                 <div>
                   <span className="font-medium">{share.label || "Без подписи"}</span>
                   <span className="ml-2 text-xs text-muted-foreground">
@@ -136,7 +125,7 @@ export function SharePanel({ interviewId }: { interviewId: string }) {
               </li>
             ))}
           </ul>
-        ) : null}
+        ) : <div className="report-share-empty"><Users size={25} /><strong>Ссылок пока нет</strong><p>Создайте первую, чтобы обсудить кандидата с командой.</p></div>}
       </CardContent>
     </Card>
   );
