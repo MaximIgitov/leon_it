@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -27,6 +28,12 @@ from leonit.jobs.registry import JobContext, job, on_worker_start, on_worker_tic
 
 log = get_logger(__name__)
 
+# Периодическая и внеочередная синхронизации могут попасть в воркер одновременно
+# (у них разные dedupe-ключи). Две параллельные синхронизации читали один и тот же
+# ответ кандидата и обе выпускали ссылку: в чат уходила одна, а в базе оставался
+# хеш другой — «ссылка недействительна». Замок сериализует запуски в процессе воркера.
+_SYNC_LOCK = asyncio.Lock()
+
 
 @job(HH_SYNC_JOB, resource="llm")
 async def hh_sync_job(payload: dict[str, Any], ctx: JobContext) -> dict[str, Any] | None:
@@ -38,9 +45,12 @@ async def hh_sync_job(payload: dict[str, Any], ctx: JobContext) -> dict[str, Any
             await session.commit()
             result["next_job_id"] = str(next_job.id)
         organization_id = payload.get("organization_id")
-        stats = await sync_organizations(
-            session, organization_id=UUID(str(organization_id)) if organization_id else None
-        )
+        if _SYNC_LOCK.locked():
+            log.info("hh.sync waits for a running sync payload=%s", payload)
+        async with _SYNC_LOCK:
+            stats = await sync_organizations(
+                session, organization_id=UUID(str(organization_id)) if organization_id else None
+            )
         log.info("hh.sync payload=%s stats=%s", payload, stats)
         return {**result, **stats}
 

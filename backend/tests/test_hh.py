@@ -611,6 +611,46 @@ async def test_periodic_job_reschedules_itself() -> None:
         assert next_job.payload == {"periodic": True}
 
 
+async def test_sync_jobs_do_not_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Периодическая и внеочередная синхронизации выполняются по очереди.
+
+    Две параллельные синхронизации читали один ответ кандидата и обе выпускали
+    ссылку: в чат уходила одна, а в базе оставался хеш другой.
+    """
+    import asyncio
+
+    from leonit.hh import jobs as hh_jobs
+
+    timeline: list[str] = []
+
+    async def fake_sync(session: Any, *, organization_id: Any = None) -> dict[str, Any]:
+        timeline.append(f"enter:{organization_id}")
+        await asyncio.sleep(0.02)
+        timeline.append(f"exit:{organization_id}")
+        return {"connections": 0, "failed": 0}
+
+    monkeypatch.setattr(hh_jobs, "sync_organizations", fake_sync)
+
+    async def heartbeat() -> bool:
+        return True
+
+    ctx = JobContext(
+        job_id=uuid.uuid4(),
+        kind=HH_SYNC_JOB,
+        attempt=1,
+        worker_id="w-test",
+        session_maker=get_session_maker(),
+        _heartbeat=heartbeat,
+    )
+    org = uuid.uuid4()
+    results = await asyncio.gather(
+        hh_sync_job({"organization_id": str(org)}, ctx),
+        hh_sync_job({"organization_id": str(org)}, ctx),
+    )
+    assert all(result is not None and result["connections"] == 0 for result in results)
+    assert timeline == [f"enter:{org}", f"exit:{org}", f"enter:{org}", f"exit:{org}"]
+
+
 # ------------------------------------------------------------- разбор срока
 
 
