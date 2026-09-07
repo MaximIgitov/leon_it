@@ -33,6 +33,12 @@
 		}
 	}
 
+	# Материалы сдачи: статика из /opt/leonit/materials (скриншоты, диаграммы, отчёты, ролик).
+	handle_path /materials/* {
+		root * /srv/materials
+		file_server browse
+	}
+
 	handle {
 		reverse_proxy frontend:3000
 	}

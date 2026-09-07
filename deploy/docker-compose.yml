@@ -109,6 +109,8 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Материалы сдачи (скриншоты, диаграммы, отчёты) раздаются как статика по /materials/.
+      - ./materials:/srv/materials:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
