@@ -51,16 +51,43 @@ const TableFooter = React.forwardRef<
 ))
 TableFooter.displayName = "TableFooter"
 
+// Элементы, клик по которым не должен вести по ссылке строки.
+const ROW_INTERACTIVE =
+  'a, button, input, select, textarea, label, summary, [role="button"], [role="checkbox"], [role="menuitem"], [contenteditable="true"]'
+
+type RowLike = { querySelector: (selector: string) => Element | null }
+type TargetLike = { closest: (selector: string) => Element | null } | null
+
+/** Ссылка строки (`a.table-row-link`), если клик пришёлся не по другому интерактивному элементу. */
+export function rowLinkTarget(row: RowLike, target: TargetLike): HTMLAnchorElement | null {
+  const link = row.querySelector("a.table-row-link") as HTMLAnchorElement | null
+  if (!link) return null
+  if (target && target.closest(ROW_INTERACTIVE)) return null
+  return link
+}
+
 const TableRow = React.forwardRef<
   HTMLTableRowElement,
   React.HTMLAttributes<HTMLTableRowElement>
->(({ className, ...props }, ref) => (
+>(({ className, onClick, ...props }, ref) => (
   <tr
     ref={ref}
     className={cn(
       "leon-table-row border-b transition-colors data-[state=selected]:bg-secondary",
       className
     )}
+    onClick={(event) => {
+      onClick?.(event)
+      // Клик по строке = клик по её ссылке. Раньше это делал растянутый ::after
+      // у ссылки, но tr как containing block и :has() работают не во всех
+      // браузерах, и все клики по таблице уходили в последнюю строку.
+      if (event.defaultPrevented || event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      if (typeof window !== "undefined" && window.getSelection()?.toString()) return
+      const target = event.target instanceof Element ? event.target : null
+      const link = rowLinkTarget(event.currentTarget, target)
+      if (link) link.click()
+    }}
     {...props}
   />
 ))
