@@ -220,12 +220,24 @@ def parse_negotiation(data: dict[str, Any]) -> HhNegotiationInfo:
 
 
 def parse_message(data: dict[str, Any]) -> HhMessage:
+    """Сообщение чата в любом из двух форматов hh.
+
+    ``/negotiations/{id}/messages`` и ответ на отправку отдают ``author.participant_type``,
+    ``text`` и ``created_at``; ``/common/chats/{chat_id}/messages`` — ``sender_display_info.role``,
+    ``payload.text`` и ``creation_time``.
+    """
     author = data.get("author") or {}
+    sender = data.get("sender_display_info") or {}
+    payload = data.get("payload") or {}
+    participant = author.get("participant_type") or sender.get("role") or "employer"
+    text = data.get("text")
+    if text is None:
+        text = payload.get("text")
     return HhMessage(
         id=str(data.get("id") or ""),
-        author=str(author.get("participant_type") or "employer").lower(),
-        text=str(data.get("text") or ""),
-        created_at=_parse_datetime(data.get("created_at")),
+        author=str(participant).lower(),
+        text=str(text or ""),
+        created_at=_parse_datetime(data.get("created_at") or data.get("creation_time")),
     )
 
 
@@ -475,7 +487,11 @@ class RealHhClient:
         if after_message_id:
             params["start_message_id"] = after_message_id
         data = await self.request("GET", f"/common/chats/{chat_id}/messages", params=params)
-        items = [parse_message(item) for item in (data or {}).get("items") or []]
+        # Чаты отдают список в ``messages``; ``items`` — на случай старого формата.
+        raw = (data or {}).get("messages")
+        if raw is None:
+            raw = (data or {}).get("items") or []
+        items = [parse_message(item) for item in raw]
         # start_message_id включает саму стартовую точку — её мы уже видели.
         return [item for item in items if item.id != after_message_id]
 

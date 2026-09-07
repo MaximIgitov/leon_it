@@ -611,6 +611,46 @@ async def test_periodic_job_reschedules_itself() -> None:
         assert next_job.payload == {"periodic": True}
 
 
+async def test_sync_jobs_do_not_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Периодическая и внеочередная синхронизации выполняются по очереди.
+
+    Две параллельные синхронизации читали один ответ кандидата и обе выпускали
+    ссылку: в чат уходила одна, а в базе оставался хеш другой.
+    """
+    import asyncio
+
+    from leonit.hh import jobs as hh_jobs
+
+    timeline: list[str] = []
+
+    async def fake_sync(session: Any, *, organization_id: Any = None) -> dict[str, Any]:
+        timeline.append(f"enter:{organization_id}")
+        await asyncio.sleep(0.02)
+        timeline.append(f"exit:{organization_id}")
+        return {"connections": 0, "failed": 0}
+
+    monkeypatch.setattr(hh_jobs, "sync_organizations", fake_sync)
+
+    async def heartbeat() -> bool:
+        return True
+
+    ctx = JobContext(
+        job_id=uuid.uuid4(),
+        kind=HH_SYNC_JOB,
+        attempt=1,
+        worker_id="w-test",
+        session_maker=get_session_maker(),
+        _heartbeat=heartbeat,
+    )
+    org = uuid.uuid4()
+    results = await asyncio.gather(
+        hh_sync_job({"organization_id": str(org)}, ctx),
+        hh_sync_job({"organization_id": str(org)}, ctx),
+    )
+    assert all(result is not None and result["connections"] == 0 for result in results)
+    assert timeline == [f"enter:{org}", f"exit:{org}", f"enter:{org}", f"exit:{org}"]
+
+
 # ------------------------------------------------------------- разбор срока
 
 
@@ -814,18 +854,34 @@ async def test_real_client_sends_idempotent_messages_and_treats_409_as_sent() ->
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/common/chats/chat-1/messages"
         if request.method == "GET":
+            # Формат /common/chats/{id}/messages: список в messages, текст в payload,
+            # автор в sender_display_info.role, время в creation_time.
+            assert dict(request.url.params) == {
+                "order": "next",
+                "limit": "50",
+                "start_message_id": "m0",
+            }
             return httpx.Response(
                 200,
                 json={
-                    "items": [
-                        {"id": "m0", "author": {"participant_type": "employer"}, "text": "старое"},
+                    "id": "chat-1",
+                    "has_more": False,
+                    "messages": [
+                        {
+                            "id": "m0",
+                            "creation_time": "2026-09-03T09:59:00+0300",
+                            "sender_display_info": {"role": "EMPLOYER", "name": "Максим"},
+                            "payload": {"text": "старое"},
+                            "type": "SIMPLE",
+                        },
                         {
                             "id": "m1",
-                            "author": {"participant_type": "applicant"},
-                            "text": "завтра",
-                            "created_at": "2026-09-03T10:00:00+03:00",
+                            "creation_time": "2026-09-03T10:00:00+0300",
+                            "sender_display_info": {"role": "APPLICANT", "name": "Григорий"},
+                            "payload": {"text": "завтра"},
+                            "type": "SIMPLE",
                         },
-                    ]
+                    ],
                 },
             )
         body = json.loads(request.content)
@@ -846,7 +902,25 @@ async def test_real_client_sends_idempotent_messages_and_treats_409_as_sent() ->
     assert bodies[0] == {"idempotency_key": key, "text": "Здравствуйте!", "is_automated": True}
     assert uuid.UUID(key) and bodies[1]["idempotency_key"] == key
     assert [m.id for m in messages] == ["m1"] and messages[0].author == "applicant"
+    assert messages[0].text == "завтра"
     assert messages[0].created_at is not None and messages[0].created_at.hour == 10
+
+
+def test_parse_message_accepts_legacy_negotiation_format() -> None:
+    from leonit.hh.client import parse_message
+
+    legacy = parse_message(
+        {
+            "id": "m1",
+            "author": {"participant_type": "applicant"},
+            "text": "завтра",
+            "created_at": "2026-09-03T10:00:00+03:00",
+        }
+    )
+    assert (legacy.id, legacy.author, legacy.text) == ("m1", "applicant", "завтра")
+    assert legacy.created_at is not None and legacy.created_at.hour == 10
+    empty = parse_message({"id": "m2", "sender_display_info": {"role": "APPLICANT"}, "payload": {}})
+    assert (empty.author, empty.text, empty.created_at) == ("applicant", "", None)
 
 
 async def test_connect_with_imported_token_never_refreshes(
