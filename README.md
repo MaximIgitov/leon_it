@@ -18,6 +18,7 @@
 | Документация публичного API | <https://leon-it.tech/api/docs/api> |
 | Материалы сдачи: скриншоты, диаграммы, eval-отчёты, экономика, ролик | <https://leon-it.tech/materials/> |
 | Проверка живости | <https://leon-it.tech/api/health> |
+| Презентация к защите | [docs/leonit-pitch.pdf](docs/leonit-pitch.pdf), копия на <https://leon-it.tech/materials/leonit-pitch.pdf> |
 
 Тексты сдачи (описание проекта, продуктовые материалы, дополнительные
 материалы) передаются кейсодателю отдельно и в репозиторий не входят.
