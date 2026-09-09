@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -16,6 +17,7 @@ from sqlalchemy import func, select
 
 from leonit.ai.providers.base import LLMProvider, LLMResponse
 from leonit.candidates.models import Candidate, Interview, InterviewStatus
+from leonit.candidates.service import stored_link_token
 from leonit.core.config import Settings, get_settings
 from leonit.core.crypto import get_secret_box
 from leonit.core.db import get_session_maker
@@ -400,6 +402,9 @@ async def test_full_dialog_scenario_on_fake(client: AsyncClient) -> None:
         assert interview.candidate_id == uuid.UUID(anna["candidate_id"])
         assert interview.external_ref == "hh:hh-n-5001"
         assert aware(interview.expires_at).date() == today + timedelta(days=3)
+        # Токен ссылки из чата сохранён: напоминание повторит ту же ссылку.
+        sent_token = re.search(r"/i/([A-Za-z0-9_-]+)", link_message["text"]).group(1)
+        assert stored_link_token(interview) == sent_token
         email = await session.scalar(
             select(EmailMessage).where(EmailMessage.interview_id == interview.id)
         )

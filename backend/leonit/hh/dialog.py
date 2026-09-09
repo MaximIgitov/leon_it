@@ -22,7 +22,12 @@ from leonit.accounts.models import Organization
 from leonit.accounts.security import generate_link_token, hash_link_token
 from leonit.ai.providers.base import LLMProvider
 from leonit.candidates.models import Candidate, Interview, InterviewStatus
-from leonit.candidates.service import estimated_minutes, interview_link, transition
+from leonit.candidates.service import (
+    estimated_minutes,
+    interview_link,
+    remember_link_token,
+    transition,
+)
 from leonit.core.logging import get_logger
 from leonit.core.time import utcnow
 from leonit.hh.client import HhClient
@@ -360,13 +365,14 @@ class DialogRunner:
             )
             self.session.add(interview)
         else:
-            # Активное приглашение уже есть: токен хранится хешем, поэтому для
-            # отправки в чат выпускаем новую ссылку (как «переслать»).
+            # Активное приглашение уже есть: для отправки в чат выпускаем новую
+            # ссылку (как «переслать»).
             interview.token_hash = hash_link_token(token)
             interview.expires_at = expires_at
             interview.external_ref = interview.external_ref or f"hh:{negotiation.negotiation_id}"
             if interview.status == InterviewStatus.expired:
                 transition(interview, InterviewStatus.invited)
+        remember_link_token(interview, token)
         await self.session.flush()
         negotiation.interview_id = interview.id
         return interview, token

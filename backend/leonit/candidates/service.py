@@ -28,12 +28,28 @@ from leonit.candidates.schemas import (
 )
 from leonit.core.authz import Actor, authorize, visible_vacancy_ids
 from leonit.core.config import get_settings
+from leonit.core.crypto import SecretBoxError, get_secret_box
 from leonit.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from leonit.core.time import aware, utcnow
 from leonit.legal.service import consent_documents, load_document
 from leonit.notifications.service import queue_email
 from leonit.notifications.templates import invitation_email
 from leonit.vacancies.models import Vacancy, VacancyStatus
+
+
+def remember_link_token(interview: Interview, token: str) -> None:
+    """Сохранить токен ссылки зашифрованным: напоминание повторит ту же ссылку."""
+    interview.token_secret = get_secret_box().encrypt(token)
+
+
+def stored_link_token(interview: Interview) -> str | None:
+    """Токен действующей ссылки, если он сохранён и расшифровывается."""
+    if not interview.token_secret:
+        return None
+    try:
+        return get_secret_box().decrypt(interview.token_secret)
+    except SecretBoxError:
+        return None
 
 
 def interview_link(token: str) -> str:
@@ -269,6 +285,7 @@ class InterviewService:
             invited_by_user_id=actor.user.id,
             expires_at=utcnow() + timedelta(days=vacancy.invitation_days),
         )
+        remember_link_token(interview, token)
         self.session.add(interview)
         await self.session.flush()
         if payload.send_email:
@@ -358,6 +375,7 @@ class InterviewService:
         vacancy = await self._vacancy(actor, interview.vacancy_id)
         token = generate_link_token()
         interview.token_hash = hash_link_token(token)
+        remember_link_token(interview, token)
         interview.expires_at = utcnow() + timedelta(days=vacancy.invitation_days)
         if interview.status == InterviewStatus.expired:
             transition(interview, InterviewStatus.invited)

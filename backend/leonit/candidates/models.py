@@ -144,8 +144,11 @@ class Interview(TimestampMixin, Base):
     candidate_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("candidates.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Ссылка кандидата: хранится только SHA-256 токена.
+    # Ссылка кандидата: поиск по SHA-256 токена; сам токен лежит зашифрованным,
+    # чтобы напоминание повторяло ту же ссылку, а не выпускало новую (иначе
+    # ссылка в чате hh и в первом письме переставала работать).
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    token_secret: Mapped[str | None] = mapped_column(Text)
     status: Mapped[InterviewStatus] = mapped_column(
         Enum(InterviewStatus, name="interview_status", native_enum=False, length=16),
         default=InterviewStatus.invited,
