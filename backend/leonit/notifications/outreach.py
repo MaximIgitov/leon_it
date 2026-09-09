@@ -107,7 +107,12 @@ async def schedule_reminders(session: AsyncSession, *, now: datetime | None = No
 async def send_reminder(session: AsyncSession, interview_id: UUID) -> dict[str, Any]:
     """Отправить одно напоминание. Идемпотентно по ``reminder_sent_at``."""
     from leonit.accounts.security import generate_link_token, hash_link_token
-    from leonit.candidates.service import estimated_minutes, interview_link
+    from leonit.candidates.service import (
+        estimated_minutes,
+        interview_link,
+        remember_link_token,
+        stored_link_token,
+    )
 
     interview = await session.scalar(
         select(Interview)
@@ -135,16 +140,20 @@ async def send_reminder(session: AsyncSession, interview_id: UUID) -> dict[str, 
     if vacancy is None or organization is None:
         return {"skipped": "vacancy or organization is gone"}
 
-    # Токен интервью хранится хешем, поэтому ссылку в письме выпускаем заново —
-    # старая перестаёт работать, как и при «Отправить ссылку заново».
-    token = generate_link_token()
-    interview.token_hash = hash_link_token(token)
+    # Напоминание повторяет действующую ссылку. Токен сохранён зашифрованным;
+    # у старых интервью его нет: для пришедших из hh ссылку не трогаем (она
+    # живёт в чате hh), для остальных выпускаем новую, как раньше.
+    token = stored_link_token(interview)
+    if token is None and not (interview.external_ref or "").startswith("hh:"):
+        token = generate_link_token()
+        interview.token_hash = hash_link_token(token)
+        remember_link_token(interview, token)
     interview.reminder_sent_at = now
     subject, body = reminder_email(
         candidate_name=interview.consent_full_name or interview.candidate.full_name,
         organization_name=organization.name,
         vacancy_title=vacancy.title,
-        link=interview_link(token),
+        link=interview_link(token) if token else None,
         expires_at=expires_at,
         estimated_minutes=estimated_minutes(vacancy),
     )

@@ -106,12 +106,36 @@ async def test_reminder_is_sent_once_and_only_inside_window(client: AsyncClient)
     assert again == {"skipped": "reminder already sent"}
     assert len(await _emails(EMAIL_KIND_REMINDER, soon["id"])) == 1
 
-    # Ссылка из напоминания рабочая: старая заменена новой.
+    # Напоминание повторяет ту же ссылку: и она, и первое письмо продолжают работать.
     link = next(line for line in letter.body_text.splitlines() if "/i/" in line)
+    assert _token(link) == _token(soon["link"])
     page = await client.get(f"/api/public/invitations/{_token(link)}")
     assert page.status_code == 200, page.text
-    old = await client.get(f"/api/public/invitations/{_token(soon['link'])}")
-    assert old.status_code == 404
+
+
+async def test_reminder_keeps_hh_link_when_token_is_not_stored(client: AsyncClient) -> None:
+    """Старое интервью из hh без сохранённого токена: ссылку в чате не ломаем."""
+    _, token = await register(client)
+    vacancy = await _published_vacancy(client, token)
+    invited = await _invite(client, token, vacancy["id"], "hh@example.com")
+    now = utcnow()
+    async with get_session_maker()() as session:
+        interview = await session.get(Interview, uuid.UUID(invited["id"]))
+        assert interview is not None
+        interview.token_secret = None
+        interview.external_ref = "hh:5556000000"
+        interview.expires_at = now + timedelta(hours=12)
+        before = interview.token_hash
+        await session.commit()
+        result = await send_reminder(session, uuid.UUID(invited["id"]))
+    assert "email_id" in result
+    (letter,) = await _emails(EMAIL_KIND_REMINDER, invited["id"])
+    assert "/i/" not in letter.body_text and "hh.ru" in letter.body_text
+    async with get_session_maker()() as session:
+        interview = await session.get(Interview, uuid.UUID(invited["id"]))
+        assert interview is not None and interview.token_hash == before
+    page = await client.get(f"/api/public/invitations/{_token(invited['link'])}")
+    assert page.status_code == 200, page.text
 
 
 async def test_reminder_skips_finished_and_expired(client: AsyncClient) -> None:
