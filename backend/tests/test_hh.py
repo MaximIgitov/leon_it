@@ -155,7 +155,7 @@ async def test_demo_connect_status_and_encrypted_tokens(client: AsyncClient) -> 
     status = await _connect_demo(client, token)
     connection = status["connection"]
     assert connection["status"] == "connected" and connection["mode"] == "fake"
-    assert connection["employer_name"].startswith("Napoleon IT")
+    assert connection["employer_name"].startswith("Example IT")
     assert connection["webhook_url"].startswith(
         f"{get_settings().PUBLIC_URL}/api/integrations/hh/webhook/"
     )
@@ -325,7 +325,7 @@ async def test_webhook_secret_and_dedupe(client: AsyncClient) -> None:
 
 
 async def test_full_dialog_scenario_on_fake(client: AsyncClient) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     await _connect_demo(client, token)
     org = await _org_id(token, client)
 
@@ -950,7 +950,7 @@ async def test_connect_with_imported_token_never_refreshes(
                 200,
                 json={
                     "id": "u-1",
-                    "employer": {"id": "12980144", "name": "Napoleon IT"},
+                    "employer": {"id": "12980144", "name": "Example IT"},
                     "manager": {"id": "m-7"},
                 },
             )
@@ -982,7 +982,7 @@ async def test_connect_with_imported_token_never_refreshes(
     assert response.status_code == 200, response.text
     connection = response.json()["connection"]
     assert connection["status"] == "connected" and connection["mode"] == "real"
-    assert connection["employer_name"] == "Napoleon IT" and connection["employer_id"] == "12980144"
+    assert connection["employer_name"] == "Example IT" and connection["employer_id"] == "12980144"
     assert connection["token_refreshable"] is False
     assert aware(datetime.fromisoformat(connection["expires_at"])) - utcnow() > timedelta(days=13)
     # Только /me и список аккаунтов с нашим токеном; за /token (refresh) клиент не ходил.

@@ -137,7 +137,7 @@ async def _transcribe(interview_id: str) -> None:
 async def test_followup_block_is_added_before_finish_and_answers_link_to_parent(
     client: AsyncClient,
 ) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _vacancy_with_followups(client, token)
     interview = await _invite(client, token, vacancy["id"], "followup@example.com")
     link = _token(interview["link"])

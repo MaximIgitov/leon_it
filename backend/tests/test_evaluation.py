@@ -347,7 +347,7 @@ async def _rubric_vacancy(client: AsyncClient, token: str) -> dict:
 
 async def _completed_interview(client: AsyncClient) -> tuple[str, dict, dict, str]:
     """Интервью, пройденное через API комнаты: два зачётных ответа в статусе uploaded."""
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _rubric_vacancy(client, token)
     interview = await _invite(client, token, vacancy["id"], "cand@example.com")
     link = _token(interview["link"])
@@ -710,7 +710,7 @@ def test_dataset_is_well_formed() -> None:
     lengths: list[int] = []
     for case in cases:
         # Синтетические вакансии — 3–4 компетенции и 2–3 вопроса; вакансия заказчика
-        # (кейсы 29–30) — 6 компетенций по рамке Napoleon IT и 6 вопросов.
+        # (кейсы 29–30) — 6 компетенций по рамке Example IT и 6 вопросов.
         assert 3 <= len(case.vacancy["rubric"]) <= 6
         assert all(item["levels"] for item in case.vacancy["rubric"])
         assert 2 <= len(case.questions) <= 6

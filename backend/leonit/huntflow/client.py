@@ -419,13 +419,13 @@ def _error_detail(response: httpx.Response) -> str:
 # --- фейковый клиент ---------------------------------------------------------
 
 FAKE_ME = HuntflowMe(id=1, name="Демо-рекрутер", email="demo@huntflow.local")
-FAKE_ACCOUNT = HuntflowAccount(id=1, name="Napoleon IT (демо)", nick="napoleon-demo")
+FAKE_ACCOUNT = HuntflowAccount(id=1, name="Example IT (демо)", nick="example-demo")
 FAKE_VACANCIES: tuple[HuntflowVacancy, ...] = (
-    HuntflowVacancy(id=101, position="Python-разработчик", state="OPEN", company="Napoleon IT"),
+    HuntflowVacancy(id=101, position="Python-разработчик", state="OPEN", company="Example IT"),
     HuntflowVacancy(
-        id=102, position="Frontend-разработчик (React)", state="OPEN", company="Napoleon IT"
+        id=102, position="Frontend-разработчик (React)", state="OPEN", company="Example IT"
     ),
-    HuntflowVacancy(id=103, position="Аналитик данных", state="HOLD", company="Napoleon IT"),
+    HuntflowVacancy(id=103, position="Аналитик данных", state="HOLD", company="Example IT"),
 )
 FAKE_STATUSES: tuple[HuntflowStatus, ...] = (
     HuntflowStatus(id=1, name="Новый", type="user", order=1),

@@ -773,7 +773,7 @@ def test_system_prompt_marks_untrusted_context_and_scope() -> None:
     manager = Actor(
         user=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
         membership=SimpleNamespace(role=MembershipRole.hiring_manager, vacancy_scope=[vacancy_id]),  # type: ignore[arg-type]
-        organization=SimpleNamespace(id=uuid.uuid4(), name="Napoleon IT"),  # type: ignore[arg-type]
+        organization=SimpleNamespace(id=uuid.uuid4(), name="Example IT"),  # type: ignore[arg-type]
     )
     prompt = build_system_prompt(
         manager, [("ranking", "Рейтинг")], f"/vacancies/{vacancy_id}?x=IGNORE"
@@ -793,7 +793,7 @@ def test_system_prompt_marks_untrusted_context_and_scope() -> None:
     owner = Actor(
         user=SimpleNamespace(id=uuid.uuid4()),  # type: ignore[arg-type]
         membership=SimpleNamespace(role=MembershipRole.owner, vacancy_scope=None),  # type: ignore[arg-type]
-        organization=SimpleNamespace(id=uuid.uuid4(), name="Napoleon IT"),  # type: ignore[arg-type]
+        organization=SimpleNamespace(id=uuid.uuid4(), name="Example IT"),  # type: ignore[arg-type]
     )
     owner_prompt = build_system_prompt(owner, [], None)
     assert "Допущенные вакансии" not in owner_prompt

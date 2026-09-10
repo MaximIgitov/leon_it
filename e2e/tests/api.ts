@@ -43,7 +43,7 @@ export async function seedInterview(
   const password = "e2e-password-123";
   const { access_token: token } = await call<{ access_token: string }>("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, full_name: "Рекрутер E2E", organization_name: "Napoleon IT" }),
+    body: JSON.stringify({ email, password, full_name: "Рекрутер E2E", organization_name: "Example IT" }),
   });
   const vacancy = await call<{ id: string }>("/vacancies", {
     method: "POST",

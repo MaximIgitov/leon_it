@@ -141,7 +141,7 @@ await service.enqueue(
 ### `demo/` — демо-данные для стенда
 
 `uv run python -m leonit.demo.seed --password <пароль> [--email demo@leonit.ru]
-[--organization "Napoleon IT"] [--recruiter-email …] [--manager-email …]
+[--organization "Example IT"] [--recruiter-email …] [--manager-email …]
 [--evaluate dataset|real|none] [--json]` создаёт организацию с тремя
 ролями (владелец, рекрутер, нанимающий менеджер со scope на первую вакансию),
 две опубликованные вакансии с рубрикой и вопросами из eval-датасета, шесть
@@ -153,9 +153,9 @@ await service.enqueue(
 последним трём неделям, чтобы дашборд показывал динамику.
 
 Название организации и адреса сотрудников задаются параметрами, поэтому тем же
-сидом заводится не только демо-стенд: `--organization "Napoleon IT"
---email owner@napoleonit.ru --recruiter-email recruiter@napoleonit.ru
---manager-email manager@napoleonit.ru`. Без этих параметров адреса выводятся из
+сидом заводится не только демо-стенд: `--organization "Example IT"
+--email owner@example.com --recruiter-email recruiter@example.com
+--manager-email manager@example.com`. Без этих параметров адреса выводятся из
 адреса владельца плюс-адресацией (`demo@…` → `demo+recruiter@…`).
 ### `assistant/` — ассистент в контексте страницы
 
@@ -758,7 +758,7 @@ awaiting_slot → link_sent → done`, ветки `declined` и `needs_recruiter
 | `HH_CLIENT_ID`, `HH_CLIENT_SECRET` | Ключи приложения из dev.hh.ru. |
 | `HH_REDIRECT_URL` | Адрес возврата OAuth; по умолчанию `PUBLIC_URL/api/integrations/hh/callback` — его же указывают в настройках приложения HH. |
 | `HH_API_BASE`, `HH_OAUTH_BASE` | `https://api.hh.ru` и `https://hh.ru`. |
-| `HH_USER_AGENT` | Заголовок `HH-User-Agent`, по умолчанию `LeonIT/1.0 (info@napoleonit.ru)`. |
+| `HH_USER_AGENT` | Заголовок `HH-User-Agent`, по умолчанию `LeonIT/1.0 (info@example.com)`. |
 | `HH_SYNC_INTERVAL_MINUTES` | Период фоновой синхронизации, по умолчанию 10. |
 
 Ограничения: подписка на вебхуки HH не регистрируется автоматически (адрес

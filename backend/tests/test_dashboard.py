@@ -126,7 +126,7 @@ def _step(overview: dict, key: str) -> dict:
 
 
 async def test_overview_funnel_breakdowns_agreement_and_quotes(client: AsyncClient) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _published_vacancy(client, token)
     emails = [f"{name}@example.com" for name in "abcdefg"]
     interviews = await _invite_many(client, token, vacancy["id"], emails)

@@ -16,7 +16,7 @@ from tests.test_assistant import _actions, _send, _thread
 
 COMPANY_TEXT = """# О компании
 
-Napoleon IT — разработчик программного обеспечения и технологический партнёр
+Example IT — разработчик программного обеспечения и технологический партнёр
 ритейлеров. Компания основана в 2011 году в Челябинске, офисы в Москве и
 Санкт-Петербурге.
 
@@ -66,7 +66,7 @@ def _xlsx_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def _pdf_bytes(text: str = "Napoleon IT knowledge base") -> bytes:
+def _pdf_bytes(text: str = "Example IT knowledge base") -> bytes:
     """Минимальный PDF с одной строкой текста, без внешних библиотек."""
     content = f"BT /F1 18 Tf 40 700 Td ({text}) Tj ET".encode("latin-1")
     objects = [
@@ -114,7 +114,7 @@ def test_extract_text_supports_every_format() -> None:
     xlsx = extract_text("benefits.xlsx", None, _xlsx_bytes())
     assert "# Лист: Льготы" in xlsx.text and "ДМС | после испытательного срока" in xlsx.text
     pdf = extract_text("kb.pdf", "application/pdf", _pdf_bytes())
-    assert "Napoleon IT knowledge base" in pdf.text and pdf.content_type == "application/pdf"
+    assert "Example IT knowledge base" in pdf.text and pdf.content_type == "application/pdf"
     # Формат по content-type, если расширения нет.
     assert extract_text(None, "text/markdown", "# Заголовок".encode()).extension == ".md"
 

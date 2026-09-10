@@ -144,7 +144,7 @@ async def test_invite_with_malformed_ids_is_422(client: AsyncClient) -> None:
 
 
 async def test_invite_flow_link_shown_once_and_email_queued(client: AsyncClient) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _published_vacancy(client, token)
     interview = await _invite(client, token, vacancy["id"], "cand@example.com")
     assert interview["status"] == "invited"
@@ -213,7 +213,7 @@ async def test_invite_flow_link_shown_once_and_email_queued(client: AsyncClient)
 
 
 async def test_public_invitation_opens_and_consent_records(client: AsyncClient) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _published_vacancy(client, token)
     interview = await _invite(client, token, vacancy["id"], "cand@example.com")
     link_token = _token(interview["link"])
@@ -223,7 +223,7 @@ async def test_public_invitation_opens_and_consent_records(client: AsyncClient) 
     body = opened.json()
     assert body["status"] == "opened"
     assert body["needs_consent"] is True
-    assert body["organization_name"] == "Napoleon IT"
+    assert body["organization_name"] == "Example IT"
     assert body["question_count"] == 2
     assert body["estimated_minutes"] >= 3
     slugs = [doc["slug"] for doc in body["consent_documents"]]

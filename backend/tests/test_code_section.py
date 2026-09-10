@@ -65,7 +65,7 @@ async def _code_vacancy(client: AsyncClient, token: str) -> dict:
 
 async def _started(client: AsyncClient) -> tuple[str, dict, str, dict]:
     """Вакансия с вопросом kind=code первым: (токен рекрутера, интервью, ссылка, state)."""
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _code_vacancy(client, token)
     interview = await _invite(client, token, vacancy["id"], "cand@example.com")
     link = _token(interview["link"])

@@ -1,7 +1,7 @@
 """Сид демо-данных: организация со всеми ролями, вакансии, воронка кандидатов, заключения.
 
     python -m leonit.demo.seed --password <пароль> [--email demo@leonit.ru]
-                               [--organization "Napoleon IT"]
+                               [--organization "Example IT"]
                                [--recruiter-email …] [--manager-email …]
                                [--evaluate dataset|real|none] [--json]
 
@@ -110,14 +110,14 @@ KNOWLEDGE_TAGS: dict[str, list[str]] = {
     "21": ["вакансия", "вопросы", "заключение", "python"],
 }
 DEFAULT_EMAIL = "demo@leonit.ru"
-ORGANIZATION_NAME = "Napoleon IT · демо"
+ORGANIZATION_NAME = "Example IT · демо"
 # Имена сотрудников подставляются в аккаунты; e-mail задаются параметрами.
 OWNER_NAME = "Владелец"
 RECRUITER_NAME = "Рекрутер"
 MANAGER_NAME = "Нанимающий менеджер"
 DEMO_MODEL = "demo-dataset"
 # Кейсы с инъекциями (07–09) и пограничные (10–26) в демо не нужны: они для
-# eval-контура. 29–30 — примеры заключений из материалов Napoleon IT по их
+# eval-контура. 29–30 — примеры заключений из материалов Example IT по их
 # вакансии «Middle+ Python Developer».
 CASE_FILES = ("01", "02", "03", "04", "05", "06", "29", "30")
 

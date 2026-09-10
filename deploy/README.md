@@ -73,7 +73,7 @@ Run workflow → «Собрать образы на сервере».
 | `HH_CLIENT_ID`, `HH_CLIENT_SECRET` | Ключи приложения с dev.hh.ru (тип «для работодателей»). |
 | `HH_REDIRECT_URL` | Необязательно: по умолчанию `${PUBLIC_URL}/api/integrations/hh/callback`; тот же адрес указывается в настройках приложения HH. |
 | `HH_MODE` | Необязательно: `auto` (по ключам), `fake`, `real`. |
-| `HH_USER_AGENT` | Необязательно: `LeonIT/1.0 (info@napoleonit.ru)` — HH требует контакт в User-Agent. |
+| `HH_USER_AGENT` | Необязательно: `LeonIT/1.0 (info@example.com)` — HH требует контакт в User-Agent. |
 | `HH_SYNC_INTERVAL_MINUTES` | Необязательно: период фоновой синхронизации, по умолчанию 10. |
 
 Адрес вебхука с секретом показывается владельцу на странице «Интеграции →

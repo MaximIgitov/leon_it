@@ -116,11 +116,11 @@ async def test_seed_accepts_custom_organization_and_member_emails(client: AsyncC
         get_session_maker(),
         password=PASSWORD,
         email=owner,
-        organization="Napoleon IT",
+        organization="Example IT",
         recruiter_email=recruiter,
         manager_email=manager,
     )
-    assert report.organization == "Napoleon IT"
+    assert report.organization == "Example IT"
     assert (report.recruiter_email, report.manager_email) == (recruiter, manager)
 
     # Все три аккаунта входят с этим паролем и видят свою часть системы.

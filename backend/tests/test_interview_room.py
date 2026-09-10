@@ -16,7 +16,7 @@ CHUNK = b"\x1aE\xdf\xa3" + b"x" * 1000
 
 
 async def _consented(client: AsyncClient) -> tuple[str, dict, str, str]:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = await _published_vacancy(client, token)
     interview = await _invite(client, token, vacancy["id"], "cand@example.com")
     link = _token(interview["link"])

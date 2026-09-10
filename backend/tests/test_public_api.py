@@ -111,7 +111,7 @@ def test_token_actions_follow_scopes_exactly() -> None:
 
 
 async def test_public_api_with_token(client: AsyncClient) -> None:
-    _, owner = await register(client, organization_name="Napoleon IT")
+    _, owner = await register(client, organization_name="Example IT")
     vacancy = await _published_vacancy(client, owner)
     draft = (
         await client.post("/api/vacancies", json={"title": "Черновик"}, headers=bearer(owner))

@@ -133,7 +133,7 @@ async def test_concurrent_misses_render_once(tmp_path: Path) -> None:
 
 async def _in_room(client: AsyncClient, *, avatar: bool = True) -> tuple[str, str]:
     """Опубликованная вакансия (аватар по настройке), кандидат согласился и начал интервью."""
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     response = await client.post(
         "/api/vacancies",
         json={"title": "Python-разработчик", "description": "Бэкенд"},
@@ -352,7 +352,7 @@ async def test_prewarm_job_fails_when_nothing_renders(
 
 
 async def test_publish_and_settings_changes_schedule_prewarm(client: AsyncClient) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = (
         await client.post(
             "/api/vacancies",
@@ -389,7 +389,7 @@ async def test_publish_and_settings_changes_schedule_prewarm(client: AsyncClient
 async def test_vacancy_detail_reports_avatar_availability(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, token = await register(client, organization_name="Napoleon IT")
+    _, token = await register(client, organization_name="Example IT")
     vacancy = (
         await client.post("/api/vacancies", json={"title": "Go"}, headers=bearer(token))
     ).json()

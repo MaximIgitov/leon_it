@@ -5,7 +5,7 @@
 
 export const SITE_URL = (import.meta.env.VITE_APP_URL ?? import.meta.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
-export const CONTACT_EMAIL = "info@napoleonit.ru";
+export const CONTACT_EMAIL = "info@example.com";
 
 /** Slug-и совпадают с документами бэкенда (`GET /api/legal/{slug}`). */
 export const LEGAL_DOCUMENTS = [

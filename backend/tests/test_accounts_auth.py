@@ -17,13 +17,13 @@ def _reset_rate_limits():
 
 
 async def test_register_creates_organization_with_owner(client: AsyncClient) -> None:
-    email, token = await register(client, organization_name="Napoleon IT")
+    email, token = await register(client, organization_name="Example IT")
     response = await client.get("/api/auth/me", headers=bearer(token))
     assert response.status_code == 200
     body = response.json()
     assert body["email"] == email
     assert body["role"] == "owner"
-    assert body["organization"]["name"] == "Napoleon IT"
+    assert body["organization"]["name"] == "Example IT"
     assert "org.members" in body["permissions"]
     assert body["vacancy_scope"] is None
 

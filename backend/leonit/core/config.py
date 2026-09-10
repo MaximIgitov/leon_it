@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # --- Кандидатский флоу и письма ------------------------------------------
     # Контакт оператора в юридических текстах и письмах.
-    SUPPORT_EMAIL: str = "info@napoleonit.ru"
+    SUPPORT_EMAIL: str = "info@example.com"
     # Срок хранения медиа по умолчанию (подставляется в тексты; у организации свой).
     DEFAULT_RETENTION_DAYS: int = 180
     # console — письма только в outbox и логи (стенд без SMTP); smtp — реальная отправка.
@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     HH_REDIRECT_URL: str | None = None
     HH_API_BASE: str = "https://api.hh.ru"
     HH_OAUTH_BASE: str = "https://hh.ru"
-    HH_USER_AGENT: str = "LeonIT/1.0 (info@napoleonit.ru)"
+    HH_USER_AGENT: str = "LeonIT/1.0 (info@example.com)"
     HH_SYNC_INTERVAL_MINUTES: int = Field(default=10, ge=1, le=1440)
     # --- Huntflow -------------------------------------------------------------
     HUNTFLOW_API_BASE: str = "https://api.huntflow.ru/v2"
